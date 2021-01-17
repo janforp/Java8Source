@@ -588,28 +588,50 @@ public class HashMap<K, V> extends AbstractMap<K, V>
      * @return the node, or null if none
      */
     final Node<K, V> getNode(int hash, Object key) {
+        //引用当前hashMap中的散列表
         Node<K, V>[] tab;
+        //first：桶位中的头元素
+        //e：临时node元素
         Node<K, V> first, e;
+        //table数组的长度
         int n;
+        //key
         K k;
-        if ((tab = table) != null && (n = tab.length) > 0 &&
-                (first = tab[(n - 1) & hash]) != null) {
-            if (first.hash == hash && // always check first node
-                    ((k = first.key) == key || (key != null && key.equals(k)))) {
+        if ((tab = table) != null //给table赋值，并且不能为空
+                && (n = tab.length) > 0//给n赋值，并且大于0
+
+                //通过(n - 1) & hash寻址到数组下标，给first赋值,并且该桶位中的元素不为空
+                && (first = tab[(n - 1) & hash]) != null) {
+
+            //进入if，这说明桶位中有数据
+
+            //检查first元素是否就是要查询的节点
+            //hash相同，并且key相同，就说明找到了
+            // always check first node
+            if (first.hash == hash && ((k = first.key) == key || (key != null && key.equals(k)))) {
                 return first;
             }
+
+            //给临时节点e赋值为first的下一个元素,并且e != null，说明至少是树化或者链表了
             if ((e = first.next) != null) {
+
+                //树化了，从红黑树中查询
                 if (first instanceof TreeNode) {
                     return ((TreeNode<K, V>) first).getTreeNode(hash, key);
                 }
+
+                //还没有树化，从链表中查询
                 do {
-                    if (e.hash == hash &&
-                            ((k = e.key) == key || (key != null && key.equals(k)))) {
+                    //hash相同，并且key相同，就说明找到了
+                    if (e.hash == hash && ((k = e.key) == key || (key != null && key.equals(k)))) {
                         return e;
                     }
+                    //循环链表查询
                 } while ((e = e.next) != null);
             }
         }
+
+        //要么没数组，要么定位到的桶位为空，直接返回
         return null;
     }
 
@@ -745,7 +767,7 @@ public class HashMap<K, V> extends AbstractMap<K, V>
         if (++size > threshold) {
             resize();
         }
-        //TODO
+        //钩子函数
         afterNodeInsertion(evict);
         return null;
     }
@@ -968,49 +990,81 @@ public class HashMap<K, V> extends AbstractMap<K, V>
      * @param hash hash for key
      * @param key the key
      * @param value the value to match if matchValue, else ignored
-     * @param matchValue if true only remove if value is equal
+     * @param matchValue if true only remove if value is equal，key跟value都要匹配上才删除
      * @param movable if false do not move other nodes while removing
      * @return the node, or null if none
      */
-    final Node<K, V> removeNode(int hash, Object key, Object value,
-            boolean matchValue, boolean movable) {
-        Node<K, V>[] tab;
-        Node<K, V> p;
+    final Node<K, V> removeNode(int hash, Object key, Object value, boolean matchValue, boolean movable) {
+        Node<K, V>[] tab;//引用当前散列表
+        Node<K, V> p;//当前节点
+        //n：表示散列表长度
+        //index：表示寻址结果
         int n, index;
-        if ((tab = table) != null && (n = tab.length) > 0 &&
-                (p = tab[index = (n - 1) & hash]) != null) {
+        //赋值并且判断
+        //赋值了 tab,n,p,index四个变量
+        if ((tab = table) != null && (n = tab.length) > 0 && (p = tab[index = (n - 1) & hash]) != null) {
+            //说明路由到的桶位是有数据的，需要进行查找操作，并且进行删错
+
+            //node:查找到的结果
+            //e：表示当前node的下一个元素
             Node<K, V> node = null, e;
             K k;
             V v;
-            if (p.hash == hash &&
-                    ((k = p.key) == key || (key != null && key.equals(k)))) {
+
+            //p就是当前桶位的头元素
+            //当前桶位中的元素就是要删错的元素
+            if (p.hash == hash && ((k = p.key) == key || (key != null && key.equals(k)))) {
                 node = p;
-            } else if ((e = p.next) != null) {
+            }
+
+            //当前桶位的头节点p不是要删错的元素，这继续寻找
+            else if ((e = p.next) != null) {//p.next != null 说明当前桶位不是链表就是树
+
+                //树化了
                 if (p instanceof TreeNode) {
+                    //树查询
                     node = ((TreeNode<K, V>) p).getTreeNode(hash, key);
-                } else {
+                }
+
+                //链化了，链表查询
+                else {
                     do {
-                        if (e.hash == hash &&
-                                ((k = e.key) == key ||
-                                        (key != null && key.equals(k)))) {
+                        //hash相同并且key相同，就找到了
+                        if (e.hash == hash && ((k = e.key) == key || (key != null && key.equals(k)))) {
                             node = e;
                             break;
                         }
+                        //TODO
                         p = e;
                     } while ((e = e.next) != null);
                 }
             }
-            if (node != null && (!matchValue || (v = node.value) == value ||
-                    (value != null && value.equals(v)))) {
+            //上面就是定位要删错node节点的过程
+
+            if (node != null //说明节点查询到了
+
+                    //是否需要继续匹配value
+                    && (!matchValue || (v = node.value) == value || (value != null && value.equals(v)))) {
+
+                //树中删错
                 if (node instanceof TreeNode) {
                     ((TreeNode<K, V>) node).removeTreeNode(this, tab, movable);
-                } else if (node == p) {
+                }
+
+                //这种情况成立的场景就是当前桶位中的节点就是要删错节点的时候
+                else if (node == p) {
+                    //把桶位的头节点赋值给node的next即可
                     tab[index] = node.next;
-                } else {
+                }
+                //链表的情况
+                else {
+                    //当前场景是 tab[index] -> ...... -> p -> node -> ....
+                    //node就是要删错的节点，根据链表删错算法就可以理解了
                     p.next = node.next;
                 }
                 ++modCount;
                 --size;
+                //钩子函数
                 afterNodeRemoval(node);
                 return node;
             }
