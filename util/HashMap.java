@@ -672,45 +672,80 @@ public class HashMap<K, V> extends AbstractMap<K, V>
         if ((p = tab[i = (n - 1) & hash]) == null) {
             //最简单的情况：寻址找到的桶位刚好是null，这个时候，直接将当前k-v=>node塞进去就可以了
             tab[i] = newNode(hash, key, value, null);
-        } else {
-            
+        } else {//此分支表示，寻址到的桶位已经有数据，发生了hash冲突
+
+            //node临时元素
+            //e如果不为null的话，表示找到了一个与当前要插入的key-value一致的key的元素
             Node<K, V> e;
+            //表示临时的一个key
             K k;
-            if (p.hash == hash &&
-                    ((k = p.key) == key || (key != null && key.equals(k)))) {
+
+            //冲突
+            //p = tab[i = (n - 1) & hash] 在上面的if分支中进行了赋值
+            if (p.hash == hash && // 当前桶位中的节点的hash与要插入数据的hash相等
+                    //k = p.key 对key进行赋值，k 就是当前桶位中节点的key
+                    //如果当前节点中的key与要插入的key相等
+                    ((k = p.key) == key
+                            //或者当要插入的key不为null的时候，要插入的key的值与当前桶位中的key的值相等
+                            || (key != null && key.equals(k)))) {
+                //通过上面的if判断，表示找到桶位中的元素，与当前要插入元素的key完全一致，表示后续需要进行替换操作
                 e = p;
-            } else if (p instanceof TreeNode) {
+
+            } else if (p instanceof TreeNode) {//冲突，表示树化了
                 e = ((TreeNode<K, V>) p).putTreeVal(this, tab, hash, key, value);
-            } else {
-                for (int binCount = 0; ; ++binCount) {
+
+            } else {//冲突，还是链表，而且链表的头元素与我们要插入的key不相同的情况
+
+                for (int binCount = 0; ; ++binCount) {//迭代当前链表
+
+                    //条件成立，说明迭代到了最后一个元素了
+                    //在当前桶位所在链表中没有找到key与要插入key一致的情况，则直接使用尾插法插入即可
                     if ((e = p.next) == null) {
+                        //直接使用尾插法插入即可
                         p.next = newNode(hash, key, value, null);
+
+                        //当链表长度为 TREEIFY_THRESHOLD - 1 的时候需要树化
+                        //为什么 -1 ？因为循环是从0开始的
                         if (binCount >= TREEIFY_THRESHOLD - 1) // -1 for 1st
                         {
+                            //树化
                             treeifyBin(tab, hash);
                         }
                         break;
                     }
+
+                    //与上面相反，说明在链表中找到了与当前要插入key相同的节点
+                    //e表示当前元素的下一个,在上面的if中赋值
                     if (e.hash == hash &&
                             ((k = e.key) == key || (key != null && key.equals(k)))) {
+                        //在链表中找到了相同key的节点
                         break;
                     }
                     p = e;
                 }
             }
+
+            //e!=null,表示当前map中有key相同的节点，则需要替换value
             if (e != null) { // existing mapping for key
                 V oldValue = e.value;
                 if (!onlyIfAbsent || oldValue == null) {
                     e.value = value;
                 }
+                //TODO
                 afterNodeAccess(e);
                 return oldValue;
             }
         }
-        ++modCount;
+
+        //如果妹有冲突，则走下面的逻辑
+        ++modCount;//替换value不算修改
+
+        //size + 1
+        //然后比较size与扩容阈值，决定是否需要扩容
         if (++size > threshold) {
             resize();
         }
+        //TODO
         afterNodeInsertion(evict);
         return null;
     }
@@ -721,61 +756,134 @@ public class HashMap<K, V> extends AbstractMap<K, V>
      * Otherwise, because we are using power-of-two expansion, the
      * elements from each bin must either stay at same index, or move
      * with a power of two offset in the new table.
+     * 为什么要扩容？位了解决hash冲突导致的链化影响查询效率的问题
      *
      * @return the table
      */
     final Node<K, V>[] resize() {
+        //引用扩容前的hash表
         Node<K, V>[] oldTab = table;
-        int oldCap = (oldTab == null) ? 0 : oldTab.length;
+        //oldCap：表示扩容之前table数组的长度
+        int oldCap = (oldTab == null) ? //是否第一次put
+                0 : oldTab.length;
+
+        //oldThr：扩容之前的扩容阈值，表示出发本次扩容的阈值
         int oldThr = threshold;
+        //newCap：扩容之后table数组的长度
+        //newThr：扩容之后，下次再次触发扩容的条件
         int newCap, newThr = 0;
-        if (oldCap > 0) {
-            if (oldCap >= MAXIMUM_CAPACITY) {
+
+        //给 int newCap, newThr 赋值，start
+
+        if (oldCap > 0) {//条件成立的话，表示hashMap中的三列表已经初始化过了，本次是一次正常的扩容
+            if (oldCap >= MAXIMUM_CAPACITY) {//扩容之前的table数组大小已经达到最大阈值了，设置扩容条件为int的最大值。
+                //不能再次扩容了
                 threshold = Integer.MAX_VALUE;
+                //不扩容，返回
                 return oldTab;
-            } else if ((newCap = oldCap << 1) < MAXIMUM_CAPACITY &&
-                    oldCap >= DEFAULT_INITIAL_CAPACITY) {
-                newThr = oldThr << 1; // double threshold
             }
-        } else if (oldThr > 0) // initial capacity was placed in threshold
-        {
-            newCap = oldThr;
-        } else {               // zero initial threshold signifies using defaults
-            newCap = DEFAULT_INITIAL_CAPACITY;
-            newThr = (int) (DEFAULT_LOAD_FACTOR * DEFAULT_INITIAL_CAPACITY);
+
+            //oldCap左移一位实现数值翻倍，并且赋值給newCap，newCap 小于数组最大限制，且 扩容之前的阈值 >= 16
+            //这种情况下，则下一次扩容的阈值等于当前阈值的2倍
+            else if (
+                //oldCap << 1 就是 2 * oldCap
+                    (newCap = oldCap << 1) < MAXIMUM_CAPACITY
+                            &&
+                            //oldCap >= 16,当出时候指定 cap=8的时候，该条件就不成立
+                            oldCap >= DEFAULT_INITIAL_CAPACITY) {
+                newThr = oldThr << 1; // double threshold，翻倍哦
+            }
         }
+
+        //下面就是 oldCap == 0 的情况，说明hashMap中的散列表还没有null
+
+        //1.通过new HashMap(initCap, loadFactor)
+        //2.new HashMap(initCap)
+        //3.new HashMap(Map map) {@link java.util.HashMap.HashMap()}
+        else if (oldThr > 0) {// initial capacity was placed in threshold
+            //因为构造方法中就是通过cap计算出的 threshold
+            newCap = oldThr;
+        }
+
+        //oldCap == 0 并且 oldThr == 0 的情况
+        //1.new HashMap();只是设置了
+        else {               // zero initial threshold signifies using defaults
+            newCap = DEFAULT_INITIAL_CAPACITY;//16
+            newThr = (int) (DEFAULT_LOAD_FACTOR * DEFAULT_INITIAL_CAPACITY);//16 * 0.75 = 12
+        }
+
+        //newThr 还没有赋值的情况
+        //通过newCap跟loadFactor计算出一个newThr
         if (newThr == 0) {
             float ft = (float) newCap * loadFactor;
-            newThr = (newCap < MAXIMUM_CAPACITY && ft < (float) MAXIMUM_CAPACITY ?
-                    (int) ft : Integer.MAX_VALUE);
+            newThr = (
+                    //计算出来的ft也要小于最大数组长度
+                    newCap < MAXIMUM_CAPACITY && ft < (float) MAXIMUM_CAPACITY ?
+                            (int) ft
+                            : Integer.MAX_VALUE
+            );
         }
+
+        //下次扩容阈值赋值
         threshold = newThr;
+        //给 int newCap, newThr 赋值，end
+
+        //创建出一个更长，更大的数组，也可能是第一次创建数组
         @SuppressWarnings({ "rawtypes", "unchecked" })
         Node<K, V>[] newTab = (Node<K, V>[]) new Node[newCap];
         table = newTab;
+
+        //说明，hashMap在本次扩容之前，table不为null
         if (oldTab != null) {
+
+            //循环处理每一个桶位
             for (int j = 0; j < oldCap; ++j) {
+                //表示当前node节点
                 Node<K, V> e;
+
+                //oldTab[j] 就是 table 中的每一个节点，可能是空，也可能是一个单独的链表节点，也可能是一个链表的头节点，还可能是树根节点
+                //e != null 说明当前桶位中有数据量，至少不是一个空桶位
                 if ((e = oldTab[j]) != null) {
+                    //真是的数据已经赋值给临时节点e,此处目的就是翻倍JVM回收
                     oldTab[j] = null;
+
+                    //第一种情况：说明当前桶位是一个当个node节点，没有发生过hash冲突，没有形成链表
                     if (e.next == null) {
+                        //只需要在新创建的table中重新寻址，放进去即可
                         newTab[e.hash & (newCap - 1)] = e;
-                    } else if (e instanceof TreeNode) {
+
+                    }
+
+                    //表示当前节点已经树化了
+                    else if (e instanceof TreeNode) {
                         ((TreeNode<K, V>) e).split(this, newTab, j, oldCap);
-                    } else { // preserve order
+                    }
+
+                    //表示当前节点形成了链表
+                    else { // preserve order
+
+                        //TODO
+                        //低位链表：存放在扩容之后的数组下标位置与扩当前数组的下标位置一致
                         Node<K, V> loHead = null, loTail = null;
+
+                        //高位链表：存放在扩容之后数组下标位置为 当前数组下标位置+扩容之前数组的长度
                         Node<K, V> hiHead = null, hiTail = null;
+
+                        //表示当前链表的下一个元素
                         Node<K, V> next;
                         do {
                             next = e.next;
-                            if ((e.hash & oldCap) == 0) {
+                            if ((e.hash & oldCap) == 0) {//低位链表
                                 if (loTail == null) {
                                     loHead = e;
                                 } else {
                                     loTail.next = e;
                                 }
                                 loTail = e;
-                            } else {
+                            }
+
+                            //高位链表
+                            else {
                                 if (hiTail == null) {
                                     hiHead = e;
                                 } else {
@@ -784,6 +892,7 @@ public class HashMap<K, V> extends AbstractMap<K, V>
                                 hiTail = e;
                             }
                         } while ((e = next) != null);
+                        //TODO
                         if (loTail != null) {
                             loTail.next = null;
                             newTab[j] = loHead;
