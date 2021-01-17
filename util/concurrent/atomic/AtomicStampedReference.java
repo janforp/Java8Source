@@ -43,19 +43,25 @@ package java.util.concurrent.atomic;
  * references by creating internal objects representing "boxed"
  * [reference, integer] pairs.
  *
- * @since 1.5
- * @author Doug Lea
  * @param <V> The type of object referred to by this reference
+ * @author Doug Lea
+ * @since 1.5
  */
 public class AtomicStampedReference<V> {
 
     private static class Pair<T> {
+
+        //数据引用
         final T reference;
+
+        //版本号
         final int stamp;
+
         private Pair(T reference, int stamp) {
             this.reference = reference;
             this.stamp = stamp;
         }
+
         static <T> Pair<T> of(T reference, int stamp) {
             return new Pair<T>(reference, stamp);
         }
@@ -122,12 +128,12 @@ public class AtomicStampedReference<V> {
      * @param newStamp the new value for the stamp
      * @return {@code true} if successful
      */
-    public boolean weakCompareAndSet(V   expectedReference,
-                                     V   newReference,
-                                     int expectedStamp,
-                                     int newStamp) {
+    public boolean weakCompareAndSet(V expectedReference,
+            V newReference,
+            int expectedStamp,
+            int newStamp) {
         return compareAndSet(expectedReference, newReference,
-                             expectedStamp, newStamp);
+                expectedStamp, newStamp);
     }
 
     /**
@@ -141,18 +147,31 @@ public class AtomicStampedReference<V> {
      * @param expectedStamp the expected value of the stamp
      * @param newStamp the new value for the stamp
      * @return {@code true} if successful
+     *
+     * jdk针对CAS的ABA问题的解决方案
+     * 使用AtomicStampedReference
      */
-    public boolean compareAndSet(V   expectedReference,
-                                 V   newReference,
-                                 int expectedStamp,
-                                 int newStamp) {
+    public boolean compareAndSet(
+            V expectedReference,//期望引用
+            V newReference,//新值引用
+            int expectedStamp,//期望引用的版本号
+            int newStamp)//新值的版本号
+    {
         Pair<V> current = pair;
         return
-            expectedReference == current.reference &&
-            expectedStamp == current.stamp &&
-            ((newReference == current.reference &&
-              newStamp == current.stamp) ||
-             casPair(current, Pair.of(newReference, newStamp)));
+                expectedReference == current.reference //期望引用与当前引用一致
+                        &&
+                        expectedStamp == current.stamp //期望版本与当前版本一致
+                        &&
+                        (
+                                (newReference == current.reference && newStamp == current.stamp) //如果新值引用与当前的引用一致，并且新版本与当前版本一致，这直接返回true，不用重新生成新的Pair
+                                        ||
+                                        casPair(current, Pair.of(newReference, newStamp))//否则，需要新建Pair
+                        );
+    }
+
+    private boolean casPair(Pair<V> cmp, Pair<V> val) {
+        return UNSAFE.compareAndSwapObject(this, pairOffset, cmp, val);
     }
 
     /**
@@ -163,8 +182,9 @@ public class AtomicStampedReference<V> {
      */
     public void set(V newReference, int newStamp) {
         Pair<V> current = pair;
-        if (newReference != current.reference || newStamp != current.stamp)
+        if (newReference != current.reference || newStamp != current.stamp) {
             this.pair = Pair.of(newReference, newStamp);
+        }
     }
 
     /**
@@ -183,23 +203,20 @@ public class AtomicStampedReference<V> {
     public boolean attemptStamp(V expectedReference, int newStamp) {
         Pair<V> current = pair;
         return
-            expectedReference == current.reference &&
-            (newStamp == current.stamp ||
-             casPair(current, Pair.of(expectedReference, newStamp)));
+                expectedReference == current.reference &&
+                        (newStamp == current.stamp ||
+                                casPair(current, Pair.of(expectedReference, newStamp)));
     }
 
     // Unsafe mechanics
 
     private static final sun.misc.Unsafe UNSAFE = sun.misc.Unsafe.getUnsafe();
-    private static final long pairOffset =
-        objectFieldOffset(UNSAFE, "pair", AtomicStampedReference.class);
 
-    private boolean casPair(Pair<V> cmp, Pair<V> val) {
-        return UNSAFE.compareAndSwapObject(this, pairOffset, cmp, val);
-    }
+    private static final long pairOffset =
+            objectFieldOffset(UNSAFE, "pair", AtomicStampedReference.class);
 
     static long objectFieldOffset(sun.misc.Unsafe UNSAFE,
-                                  String field, Class<?> klazz) {
+            String field, Class<?> klazz) {
         try {
             return UNSAFE.objectFieldOffset(klazz.getDeclaredField(field));
         } catch (NoSuchFieldException e) {
