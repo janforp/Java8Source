@@ -237,39 +237,85 @@ abstract class Striped64 extends Number {
      * 条件1，2：true：说明cells未初始化，也就是多线程写base发生竞争了[猜测：重试，初始化cells数组]
      * 条件3为true:说明当前线程对应下标的cell为空，需要创建cell（longAccumulate中会创建）[猜测：创建]
      * 条件4为true：表示cas失败，意味着当前线程对应的cell有竞争[猜测：重试或者扩容]
+     * TODO 画流程图
      */
     final void longAccumulate(
-            long x,
-            LongBinaryOperator fn,
+            long x,//需要增加的数量
+            LongBinaryOperator fn,//可以忽略
+            //表示是否发生过竞争，只有cells初始化之后，并且当前线程竞争需改失败，才会是false
             boolean wasUncontended) {
+
+        //当前线程的hash值
         int h;
+        //赋值h
+        //如果当前线程的hash值还没有初始化=0
         if ((h = getProbe()) == 0) {
+            //说明当前线程还没有分配hash值
+            //给当前线程分配hash值
             ThreadLocalRandom.current(); // force initialization
+            //再次赋值，此时肯定有值，并且不等于0
             h = getProbe();
+            //为什么？因为默认情况下，当前线程肯定是写入到了cell[0]位置。
+            //不把他当做一次真正的竞争
             wasUncontended = true;
         }
+
+        //表示扩容意向，false一定不会扩容，true可能扩容
         boolean collide = false;                // True if last slot nonempty
+
+        //自旋
         for (; ; ) {
+            //表示celss引用
             Cell[] as;
+            //表示当前线程命中的cell
             Cell a;
+            //表示cells数组长度
             int n;
+            //表示期望值
             long v;
+
+            //as,n赋值
+            //CASE1:表示cells已经初始化了，当前线程应该将数据写入到对应的cell中
             if ((as = cells) != null && (n = as.length) > 0) {
+                //条件3为true:说明当前线程对应下标的cell为空，需要创建cell（longAccumulate中会创建）[猜测：创建]
+                //条件4为true：表示cas失败，意味着当前线程对应的cell有竞争[猜测：重试或者扩容]
+
+                //CASE1.1:True:表示当前线程对应的下标位置的cell为null，需要创建 new Cell
                 if ((a = as[(n - 1) & h]) == null) {
+
+                    //true：表示当前锁未被占用，false表示锁被占用
                     if (cellsBusy == 0) {       // Try to attach new Cell
+
+                        //拿当前的x创建cell
                         Cell r = new Cell(x);   // Optimistically create
-                        if (cellsBusy == 0 && casCellsBusy()) {
+
+                        if (cellsBusy == 0//true：表示当前锁未被占用，false表示锁被占用
+                                &&
+                                //拿锁操作，true:表示当前线程获取锁成功，false表示当前线程获取锁失败
+                                casCellsBusy()) {//可能第一个条件判断完之后，此处cpu让出去了
+
+                            //当前线程获取锁成功之后才进来这里
+
+                            //是否创建成功的标记
                             boolean created = false;
                             try {               // Recheck under lock
+                                //表示当前cells引用
                                 Cell[] rs;
+                                //m:cells长度
+                                //j:表示当前线程命中的cell的下标
                                 int m, j;
-                                if ((rs = cells) != null &&
-                                        (m = rs.length) > 0 &&
+                                if ((rs = cells) != null//赋值，true：cells不为空，false：为空，此处肯定为true
+                                        &&
+                                        (m = rs.length) > 0///赋值，true：cells不为空，false：为空，此处肯定为true
+                                        &&
+                                        //赋值下标j，取模，重复判断，也就是双重检查
+                                        //目的是位了防止其他线程初始化过该位置，然后当前线程再次初始化该位置，导致丢失数据
                                         rs[j = (m - 1) & h] == null) {
                                     rs[j] = r;
                                     created = true;
                                 }
                             } finally {
+                                //释放锁,此处就有并发问题，需要进行双重检查
                                 cellsBusy = 0;
                             }
                             if (created) {
@@ -278,36 +324,82 @@ abstract class Striped64 extends Number {
                             continue;           // Slot is now non-empty
                         }
                     }
+
+                    //如果当前锁被占用，这停止扩容意向
                     collide = false;
-                } else if (!wasUncontended)       // CAS already known to fail
-                {
+                }
+
+                // CAS already known to fail
+                //CASE1.2:只有一种情况：cells初始化后，并且当前线程竞争需改失败，才会是false
+                else if (!wasUncontended) {
+                    //竞争了
                     wasUncontended = true;      // Continue after rehash
-                } else if (a.cas(v = a.value, ((fn == null) ? v + x :
-                        fn.applyAsLong(v, x)))) {
+                }
+
+                //CASE1.3:当前线程 rehash 过 hash，然后新命中的cell不为空
+                //true：表示写成功，这退出自旋即可
+                //false：表示rehash之后命中的新的cell也有竞争，导致cas失败,重试了一次，再重试一次
+                else if (a.cas(v = a.value, ((fn == null) ? v + x : fn.applyAsLong(v, x)))) {
                     break;
-                } else if (n >= NCPU || cells != as) {
+                }
+
+                //CASE1.4：
+                //条件一：n >= ncpu，true扩容意向改为false.表示不扩容了，false：说明cells数组还可以扩容
+                //条件二：cells != as true表示其他线程已经扩容过了，当前线程rehash重试即可
+                else if (n >= NCPU || cells != as) {
+                    //扩容意向改为false.表示不扩容了
                     collide = false;            // At max size or stale
-                } else if (!collide) {
+                }
+
+                //CASE1.5：
+                //true的时候，即collide=false的时候，设置扩容意向为true，但是不一定真的发生扩容
+                //
+                else if (!collide) {
                     collide = true;
-                } else if (cellsBusy == 0 && casCellsBusy()) {
+                }
+
+                //CASE1.6:真正扩容的逻辑
+                else if (cellsBusy == 0//条件一,true表示当前无锁状态，当前线程可以去竞争这把锁
+                        && //非原子性的操作
+                        //条件二，具体竞争锁的逻辑，true表示竞争到了锁，否则没有拿到锁，表示当前有其他线程在做扩容操作
+                        casCellsBusy()) {
+
+                    //只有当前无锁，并且当前线程获取到了锁，才进入到这里
                     try {
+
+                        //cells == as ? 因为 && 运算符不是原子性的，需要双重检查
                         if (cells == as) {      // Expand table unless stale
+
+                            //翻倍
                             Cell[] rs = new Cell[n << 1];
                             for (int i = 0; i < n; ++i) {
+                                //复制
                                 rs[i] = as[i];
                             }
+
+                            //重新赋值给cells，扩容完成了
                             cells = rs;
                         }
                     } finally {
+                        //释放锁
                         cellsBusy = 0;
                     }
                     collide = false;
                     continue;                   // Retry with expanded table
                 }
+
+                //重置当前线程hash值
                 h = advanceProbe(h);
-            } else if (cellsBusy == 0 && cells == as && casCellsBusy()) {
+            }
+
+            //CASE2：前置条件为cells还没有初始化，as为null
+
+            else if (cellsBusy == 0 //条件一为true：表示当前未加锁
+                    && cells == as//此处为双重检查，因为其他线程可能会在你给as赋值之后需改了cells，条件二为ture：
+                    && casCellsBusy()) {//条件三为true：表示获取锁成功，会把cellsBusy设置为1，false表示其他线程正在持有这把锁
                 boolean init = false;
                 try {                           // Initialize table
+                    //为什么这里又要判断一次呢？防止其他线程已经初始化了，当前线程再次初始化，导致丢失数据
                     if (cells == as) {
                         Cell[] rs = new Cell[2];
                         rs[h & 1] = new Cell(x);
@@ -315,13 +407,22 @@ abstract class Striped64 extends Number {
                         init = true;
                     }
                 } finally {
+                    //此处释放锁
                     cellsBusy = 0;
                 }
                 if (init) {
                     break;
                 }
-            } else if (casBase(v = base, ((fn == null) ? v + x :
-                    fn.applyAsLong(v, x)))) {
+            }
+
+            //CASE3：
+            //1.当前cellsBusy为加锁状态，表示其他线程正在初始化cells，所以当前线程需要把值累加到base
+            //2.cells被其他线程初始化后，当前线程需要将数据累加到base
+            else if (casBase(v = base,//给v赋值
+                    ((fn == null) ?//三元运算出 val
+                            v + x
+                            : fn.applyAsLong(v, x))
+            )) {
                 break;                          // Fall back on using base
             }
         }
