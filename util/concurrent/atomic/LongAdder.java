@@ -81,55 +81,60 @@ public class LongAdder extends Striped64 implements Serializable {
     /**
      * Adds the given value.
      *
-     * @param x the value to add
+     * @param addValue the value to add
      */
-    public void add(long x) {
+    public void add(long addValue) {
         //表示cells的引用
-        Cell[] as;
-        //b：获取的base值
+        Cell[] asellsReference;
+        //currentBaseValue：获取的base值
         //v：期望值
-        long b, v;
+        long currentBaseValue, v;
         //表示cells数组的长度
-        int m;
+        int lenOfCells;
         //表示当前线程命中的cell单元格
-        Cell a;
+        Cell hitCell;
 
         //条件1：true->表示cells已经初始化过了，当前线程应该将数据写入到对应的cell中
         //条件1：false -> 表示cells未初始化，当前线程应该将数据写到base中
-        if ((as = cells) != null//条件1，给as赋值，cells数组不为空
+        if ((asellsReference = cells) != null//条件1，给as赋值，cells数组不为空
                 ||
+                //casBase 表示把值添加到base中，成功返回true，失败返回false
                 //条件2：true->表示当前线程cas替换数据成功
                 //条件2：false->表示发生了竞争，可能需要重试 或者 扩容
-                !casBase(b = base, b + x)) {//条件2，给b赋值为base，并且试图使用cas，但是没有成功则进入if代码块，否则此处就add成功了
+                //条件2，给b赋值为base，并且试图使用cas，但是没有成功则进入if代码块，否则此处就add成功了
+                !casBase(currentBaseValue = base, currentBaseValue + addValue)) {
 
-            //什么时候能进来？
+            //***********************什么时候能进来？*****************************
             //条件1为true->表示cells已经初始化过了，当前线程应该将数据写入到对应的cell中
-            //条件2为false->表示发生了竞争，可能需要重试 或者 扩容
+            //条件2为false->casBase修改失败了，表示发生了竞争，可能需要重试 或者 扩容
 
-            //true:没有竞争，false：发生竞争
+            //true:没有竞争，false：有竞争
             boolean uncontended = true;
 
             //条件1，2：true：说明cells未初始化，也就是多线程写base发生竞争了
             //条件1，2：false：说明cells已经初始化了，当前线程应该是找到自己的cell 写值
-            if (as == null//条件1，说明cells未初始化
-                    || (m = as.length - 1) < 0//条件2，给m赋值为as的长度-1，如果m < 0 ,说明cells未初始化
-
+            //条件1，as == null，说明cells未初始化
+            //条件2，给m赋值为as的长度-1，如果m < 0 ,说明cells未初始化
+            //总之就是cells还没有初始化
+            if (asellsReference == null || (lenOfCells = asellsReference.length - 1) < 0
                     ||
                     //getProbe():获取当前线程的hash值，m表示cells长度-1，cells的长度一定为2的次方数，此处的逻辑就类似hashMap
                     //就相当于在cells数组中取模查询到该线程在cells数组中的下标
                     //条件3为true:说明当前线程对应下标的cell为空，需要创建cell（longAccumulate中会创建），
-                    // 条件3为false:说明当前线程对应的cell不为空，已经创建了，说明下一步想要将x值添加到cell中
-                    (a = as[getProbe() & m]) == null
+                    //条件3为false:说明当前线程对应的cell不为空，已经创建了，说明下一步想要将x值添加到cell中
+                    //总之该步骤就是定位该线程的cell
+                    (hitCell = asellsReference[getProbe() & lenOfCells]) == null
                     ||
+                    //到这一步，说明当前线程的cell已经初始化了，就试图把数据写入该cell中，如果写入成功，则整体成功，如果写入失败，说明在该cell上发生了竞争
                     //条件4为true：表示cas失败，意味着当前线程对应的cell有竞争
                     //条件4为false：表示cas成功，就返回了
-                    !(uncontended = a.cas(v = a.value, v + x))) {
+                    !(uncontended = hitCell.cas(v = hitCell.value, v + addValue))) {
 
                 //什么时候进来呢？
                 //条件1，2：true：说明cells未初始化，也就是多线程写base发生竞争了[猜测：重试，初始化cells数组]
                 //条件3为true:说明当前线程对应下标的cell为空，需要创建cell（longAccumulate中会创建）[猜测：创建]
                 //条件4为true：表示cas失败，意味着当前线程对应的cell有竞争[猜测：重试或者扩容]
-                longAccumulate(x, null, uncontended);
+                longAccumulate(addValue, null, uncontended);
             }
         }
     }

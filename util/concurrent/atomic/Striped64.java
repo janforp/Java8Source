@@ -246,16 +246,16 @@ abstract class Striped64 extends Number {
             boolean wasUncontended) {
 
         //当前线程的hash值
-        int h;
+        int hashCodeOfCurrentThread;
         //赋值h
         //如果当前线程的hash值还没有初始化=0
-        if ((h = getProbe()) == 0) {
+        if ((hashCodeOfCurrentThread = getProbe()) == 0) {
             //说明当前线程还没有分配hash值
             //给当前线程分配hash值
             ThreadLocalRandom.current(); // force initialization
             //再次赋值，此时肯定有值，并且不等于0
-            h = getProbe();
-            //为什么？因为默认情况下，当前线程肯定是写入到了cell[0]位置。
+            hashCodeOfCurrentThread = getProbe();
+            //为什么？因为默认情况下，当前线程的hash值=0，当前线程肯定是写入到了cell[0]位置。
             //不把他当做一次真正的竞争
             wasUncontended = true;
         }
@@ -265,23 +265,23 @@ abstract class Striped64 extends Number {
 
         //自旋
         for (; ; ) {
-            //表示celss引用
-            Cell[] as;
+            //表示cells引用
+            Cell[] cellsReference;
             //表示当前线程命中的cell
-            Cell a;
+            Cell hitCell;
             //表示cells数组长度
-            int n;
+            int lenOfCells;
             //表示期望值
             long v;
 
             //as,n赋值
             //CASE1:表示cells已经初始化了，当前线程应该将数据写入到对应的cell中
-            if ((as = cells) != null && (n = as.length) > 0) {
+            if ((cellsReference = cells) != null && (lenOfCells = cellsReference.length) > 0) {
                 //条件3为true:说明当前线程对应下标的cell为空，需要创建cell（longAccumulate中会创建）[猜测：创建]
                 //条件4为true：表示cas失败，意味着当前线程对应的cell有竞争[猜测：重试或者扩容]
 
                 //CASE1.1:True:表示当前线程对应的下标位置的cell为null，需要创建 new Cell
-                if ((a = as[(n - 1) & h]) == null) {
+                if ((hitCell = cellsReference[(lenOfCells - 1) & hashCodeOfCurrentThread]) == null) {
 
                     //true：表示当前锁未被占用，false表示锁被占用
                     if (cellsBusy == 0) {       // Try to attach new Cell
@@ -310,7 +310,7 @@ abstract class Striped64 extends Number {
                                         &&
                                         //赋值下标j，取模，重复判断，也就是双重检查
                                         //目的是位了防止其他线程初始化过该位置，然后当前线程再次初始化该位置，导致丢失数据
-                                        rs[j = (m - 1) & h] == null) {
+                                        rs[j = (m - 1) & hashCodeOfCurrentThread] == null) {
                                     rs[j] = r;
                                     created = true;
                                 }
@@ -339,14 +339,14 @@ abstract class Striped64 extends Number {
                 //CASE1.3:当前线程 rehash 过 hash，然后新命中的cell不为空
                 //true：表示写成功，这退出自旋即可
                 //false：表示rehash之后命中的新的cell也有竞争，导致cas失败,重试了一次，再重试一次
-                else if (a.cas(v = a.value, ((fn == null) ? v + x : fn.applyAsLong(v, x)))) {
+                else if (hitCell.cas(v = hitCell.value, ((fn == null) ? v + x : fn.applyAsLong(v, x)))) {
                     break;
                 }
 
                 //CASE1.4：
                 //条件一：n >= ncpu，true扩容意向改为false.表示不扩容了，false：说明cells数组还可以扩容
                 //条件二：cells != as true表示其他线程已经扩容过了，当前线程rehash重试即可
-                else if (n >= NCPU || cells != as) {
+                else if (lenOfCells >= NCPU || cells != cellsReference) {
                     //扩容意向改为false.表示不扩容了
                     collide = false;            // At max size or stale
                 }
@@ -368,13 +368,13 @@ abstract class Striped64 extends Number {
                     try {
 
                         //cells == as ? 因为 && 运算符不是原子性的，需要双重检查
-                        if (cells == as) {      // Expand table unless stale
+                        if (cells == cellsReference) {      // Expand table unless stale
 
                             //翻倍
-                            Cell[] rs = new Cell[n << 1];
-                            for (int i = 0; i < n; ++i) {
+                            Cell[] rs = new Cell[lenOfCells << 1];
+                            for (int i = 0; i < lenOfCells; ++i) {
                                 //复制
-                                rs[i] = as[i];
+                                rs[i] = cellsReference[i];
                             }
 
                             //重新赋值给cells，扩容完成了
@@ -389,20 +389,20 @@ abstract class Striped64 extends Number {
                 }
 
                 //重置当前线程hash值
-                h = advanceProbe(h);
+                hashCodeOfCurrentThread = advanceProbe(hashCodeOfCurrentThread);
             }
 
             //CASE2：前置条件为cells还没有初始化，as为null
 
             else if (cellsBusy == 0 //条件一为true：表示当前未加锁
-                    && cells == as//此处为双重检查，因为其他线程可能会在你给as赋值之后需改了cells，条件二为ture：
+                    && cells == cellsReference//此处为双重检查，因为其他线程可能会在你给as赋值之后需改了cells，条件二为ture：
                     && casCellsBusy()) {//条件三为true：表示获取锁成功，会把cellsBusy设置为1，false表示其他线程正在持有这把锁
                 boolean init = false;
                 try {                           // Initialize table
                     //为什么这里又要判断一次呢？防止其他线程已经初始化了，当前线程再次初始化，导致丢失数据
-                    if (cells == as) {
+                    if (cells == cellsReference) {
                         Cell[] rs = new Cell[2];
-                        rs[h & 1] = new Cell(x);
+                        rs[hashCodeOfCurrentThread & 1] = new Cell(x);
                         cells = rs;
                         init = true;
                     }
@@ -416,13 +416,15 @@ abstract class Striped64 extends Number {
             }
 
             //CASE3：
+            //给v赋值
             //1.当前cellsBusy为加锁状态，表示其他线程正在初始化cells，所以当前线程需要把值累加到base
             //2.cells被其他线程初始化后，当前线程需要将数据累加到base
-            else if (casBase(v = base,//给v赋值
-                    ((fn == null) ?//三元运算出 val
-                            v + x
-                            : fn.applyAsLong(v, x))
-            )) {
+            else if (
+                    casBase(v = base,
+                            ((fn == null) ?//三元运算出 val
+                                    v + x
+                                    : fn.applyAsLong(v, x)))
+            ) {
                 break;                          // Fall back on using base
             }
         }
