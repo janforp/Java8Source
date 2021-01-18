@@ -228,7 +228,7 @@ abstract class Striped64 extends Number {
      * problems of optimistic retry code, relying on rechecked sets of
      * reads.
      *
-     * @param x the value
+     * @param addValue the value
      * @param fn the update function, or null for add (this convention
      * avoids the need for an extra field or function in LongAdder).
      * @param wasUncontended false if CAS failed before call
@@ -240,7 +240,7 @@ abstract class Striped64 extends Number {
      * TODO 画流程图
      */
     final void longAccumulate(
-            long x,//需要增加的数量
+            long addValue,//需要增加的数量
             LongBinaryOperator fn,//可以忽略
             //表示是否发生过竞争，只有cells初始化之后，并且当前线程竞争需改失败，才会是false
             boolean wasUncontended) {
@@ -287,7 +287,7 @@ abstract class Striped64 extends Number {
                     if (cellsBusy == 0) {       // Try to attach new Cell
 
                         //拿当前的x创建cell
-                        Cell r = new Cell(x);   // Optimistically create
+                        Cell newCell = new Cell(addValue);   // Optimistically create
 
                         if (cellsBusy == 0//true：表示当前锁未被占用，false表示锁被占用
                                 &&
@@ -311,7 +311,7 @@ abstract class Striped64 extends Number {
                                         //赋值下标j，取模，重复判断，也就是双重检查
                                         //目的是位了防止其他线程初始化过该位置，然后当前线程再次初始化该位置，导致丢失数据
                                         rs[j = (m - 1) & hashCodeOfCurrentThread] == null) {
-                                    rs[j] = r;
+                                    rs[j] = newCell;
                                     created = true;
                                 }
                             } finally {
@@ -339,7 +339,7 @@ abstract class Striped64 extends Number {
                 //CASE1.3:当前线程 rehash 过 hash，然后新命中的cell不为空
                 //true：表示写成功，这退出自旋即可
                 //false：表示rehash之后命中的新的cell也有竞争，导致cas失败,重试了一次，再重试一次
-                else if (hitCell.cas(v = hitCell.value, ((fn == null) ? v + x : fn.applyAsLong(v, x)))) {
+                else if (hitCell.cas(v = hitCell.value, ((fn == null) ? v + addValue : fn.applyAsLong(v, addValue)))) {
                     break;
                 }
 
@@ -394,15 +394,23 @@ abstract class Striped64 extends Number {
 
             //CASE2：前置条件为cells还没有初始化，as为null
 
-            else if (cellsBusy == 0 //条件一为true：表示当前未加锁
-                    && cells == cellsReference//此处为双重检查，因为其他线程可能会在你给as赋值之后需改了cells，条件二为ture：
-                    && casCellsBusy()) {//条件三为true：表示获取锁成功，会把cellsBusy设置为1，false表示其他线程正在持有这把锁
+            else if (
+                //条件一为true：表示当前未加锁
+                    cellsBusy == 0
+                            &&
+                            //此处为双重检查，因为其他线程可能会在你给as赋值之后需改了cells，条件二为ture：
+                            cells == cellsReference
+                            &&
+                            //试图获取锁
+                            //条件三为true：表示获取锁成功，会把cellsBusy设置为1，false表示其他线程正在持有这把锁
+                            casCellsBusy()) {
                 boolean init = false;
                 try {                           // Initialize table
                     //为什么这里又要判断一次呢？防止其他线程已经初始化了，当前线程再次初始化，导致丢失数据
                     if (cells == cellsReference) {
+                        //TODO 为什么是2呢？
                         Cell[] rs = new Cell[2];
-                        rs[hashCodeOfCurrentThread & 1] = new Cell(x);
+                        rs[hashCodeOfCurrentThread & 1] = new Cell(addValue);
                         cells = rs;
                         init = true;
                     }
@@ -422,8 +430,8 @@ abstract class Striped64 extends Number {
             else if (
                     casBase(v = base,
                             ((fn == null) ?//三元运算出 val
-                                    v + x
-                                    : fn.applyAsLong(v, x)))
+                                    v + addValue
+                                    : fn.applyAsLong(v, addValue)))
             ) {
                 break;                          // Fall back on using base
             }
