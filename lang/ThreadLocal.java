@@ -705,9 +705,7 @@ public class ThreadLocal<T> {
             Entry[] tab = table;
             int len = tab.length;
             int i = key.threadLocalHashCode & (len - 1);
-            for (Entry e = tab[i];
-                 e != null;
-                 e = tab[i = nextIndex(i, len)]) {
+            for (Entry e = tab[i]; e != null; e = tab[i = nextIndex(i, len)]) {
                 if (e.get() == key) {
                     e.clear();
                     expungeStaleEntry(i);
@@ -857,7 +855,7 @@ public class ThreadLocal<T> {
                 ThreadLocal<?> k = e.get();
 
                 //条件成立：说明k表示的threadLocal对象 已经被GC回收了... 当前entry属于脏数据了...
-                if (k == null) {
+                if (k == null) {//处理过期槽位
                     //help gc
                     e.value = null;
                     //脏数据对应的slot置为null
@@ -871,6 +869,7 @@ public class ThreadLocal<T> {
                     //这样的话，查询的时候 效率才会更高！
 
                     //重新计算当前entry对应的 index
+                    //下标h本来应该是该 threadLocal 的存储下标，但是可能发生了冲突，该 threadLocal 存储的位置向后移动了
                     int h = k.threadLocalHashCode & (len - 1);
 
                     if (h != i) {//条件成立：说明当前entry存储时 就是发生过hash冲突，然后向后偏移过了...
