@@ -1,39 +1,4 @@
-﻿/*
- * ORACLE PROPRIETARY/CONFIDENTIAL. Use is subject to license terms.
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- */
-
-/*
- *
- *
- *
- *
- *
- * Written by Doug Lea with assistance from members of JCP JSR-166
- * Expert Group and released to the public domain, as explained at
- * http://creativecommons.org/publicdomain/zero/1.0/
- */
-
-package util.concurrent;
+﻿package util.concurrent;
 
 import java.io.ObjectStreamField;
 import java.io.Serializable;
@@ -264,8 +229,7 @@ import java.util.stream.Stream;
  * @author Doug Lea
  * @since 1.5
  */
-public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
-        implements ConcurrentMap<K, V>, Serializable {
+public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V>, Serializable {
 
     private static final long serialVersionUID = 7249069246763182397L;
 
@@ -688,8 +652,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
             if (k != null) {
                 do {
                     K ek;
-                    if (e.hash == h &&
-                            ((ek = e.key) == k || (ek != null && k.equals(ek)))) {
+                    if (e.hash == h && ((ek = e.key) == k || (ek != null && k.equals(ek)))) {
                         return e;
                     }
                 } while ((e = e.next) != null);
@@ -725,6 +688,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
      * 0100 0011 1010 0101 1101 1111 1011 1011
      */
     static final int spread(int h) {
+        //&运算：相同为1，不同为0
         return (h ^ (h >>> 16)) & HASH_BITS;
     }
 
@@ -738,6 +702,12 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
      * 11111 | 00111 => 11111
      * ....
      * => 11111 + 1 =100000 = 32
+     *
+     * tableSizeFor(7) = 8
+     * tableSizeFor(11) = 16
+     * tableSizeFor(16) = 16
+     * tableSizeFor(30) = 32
+     * tableSizeFor(32) = 32
      */
     private static final int tableSizeFor(int c) {
         int n = c - 1;
@@ -809,12 +779,23 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
 
     @SuppressWarnings("unchecked")
     static final <K, V> Node<K, V> tabAt(Node<K, V>[] tab, int i) {
+        //tab:数组
+        //第二个元素((long) i << ASHIFT) + ABASE：数组中的偏移量
+        //i << ASHIFT 其实就是实现乘法
         return (Node<K, V>) U.getObjectVolatile(tab, ((long) i << ASHIFT) + ABASE);
     }
 
-    static final <K, V> boolean casTabAt(Node<K, V>[] tab, int i,
-            Node<K, V> c, Node<K, V> v) {
-        return U.compareAndSwapObject(tab, ((long) i << ASHIFT) + ABASE, c, v);
+    /**
+     * @param tab 要获取数据的数组
+     * @param i 下标
+     * @param expectedValue 对比元素，期望值
+     * @param value 要设置的值
+     * @param <K>
+     * @param <V>
+     * @return
+     */
+    static final <K, V> boolean casTabAt(Node<K, V>[] tab, int i, Node<K, V> expectedValue, Node<K, V> value) {
+        return U.compareAndSwapObject(tab, ((long) i << ASHIFT) + ABASE, expectedValue, value);
     }
 
     static final <K, V> void setTabAt(Node<K, V>[] tab, int i, Node<K, V> v) {
@@ -915,13 +896,24 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
             throw new IllegalArgumentException();
         }
 
-        int cap = ((initialCapacity >= (MAXIMUM_CAPACITY >>> 1)) ?
-                MAXIMUM_CAPACITY :
-                tableSizeFor(initialCapacity + (initialCapacity >>> 1) + 1));
-        /**
-         * sizeCtl > 0
-         * 当目前table未初始化时，sizeCtl表示初始化容量
-         */
+        //MAXIMUM_CAPACITY >>> 1 意思就是 MAXIMUM_CAPACITY的一半（MAXIMUM_CAPACITY/2）
+        int cap = (
+
+                //指定初始容量是否超过最大值的一半？
+                (initialCapacity >= (MAXIMUM_CAPACITY >>> 1)) ?
+
+                        //如果是，则直接使用最大值
+                        MAXIMUM_CAPACITY
+
+                        :
+
+                        //假设 initialCapacity = 16
+                        //则：tableSizeFor(16 + 8 + 1) = tableSizeFor(25)
+                        //因为tableSizeFor(25) = 32
+                        //所以就会得到32大小的数组
+                        tableSizeFor(initialCapacity + (initialCapacity >>> 1) + 1));
+        //  sizeCtl > 0
+        //  当目前table未初始化时，sizeCtl表示初始化容量
         this.sizeCtl = cap;
     }
 
@@ -931,6 +923,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
      * @param m the map
      */
     public ConcurrentHashMap(Map<? extends K, ? extends V> m) {
+        //TODO 等待这个课程看完了，再来看这个方法，如果能看懂，说明学会了，否则，不行
         this.sizeCtl = DEFAULT_CAPACITY;
         putAll(m);
     }
@@ -971,20 +964,34 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
      * negative or the load factor or concurrencyLevel are
      * nonpositive
      */
-    public ConcurrentHashMap(int initialCapacity,
-            float loadFactor, int concurrencyLevel) {
+    public ConcurrentHashMap(
+            int initialCapacity,//初始化容量
+            float loadFactor, //负载因子，只是参与计算初始容量，没有赋值
+            int concurrencyLevel) {//并发级别，只是参与计算初始容量，没有赋值，可以理解是兼容1.7
+
+        //校验
         if (!(loadFactor > 0.0f) || initialCapacity < 0 || concurrencyLevel <= 0) {
             throw new IllegalArgumentException();
         }
 
-        if (initialCapacity < concurrencyLevel)   // Use at least as many bins
-        {
-            initialCapacity = concurrencyLevel;   // as estimated threads
+        if (initialCapacity < concurrencyLevel) {// Use at least as many bins
+            //初始容量最小的情况不能小于并发级别
+            initialCapacity = concurrencyLevel;  // as estimated threads
         }
 
+        //计算初始容量
+        //假设 initialCapacity = 16，loadFactor = 0。75
+        //则size = (1 + 16 / 0/75) = 22.3333333 = 23
+        //size = 23
         long size = (long) (1.0 + (long) initialCapacity / loadFactor);
+
+        //整个构造方法的目的就是计算初始容量
         int cap = (size >= (long) MAXIMUM_CAPACITY) ?
-                MAXIMUM_CAPACITY : tableSizeFor((int) size);
+
+                MAXIMUM_CAPACITY
+                :
+                //tableSizeFor(23) = 32
+                tableSizeFor((int) size);
         /**
          * sizeCtl > 0
          * 当目前table未初始化时，sizeCtl表示初始化容量
@@ -2586,6 +2593,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
     /* ---------------- Table Initialization and Resizing -------------- */
 
     /**
+     * 扩容的时候，会生成一个扩容唯一标识戳
      * Returns the stamp bits for resizing a table of size n.
      * Must be negative when shifted left by RESIZE_STAMP_SHIFT.
      * 16 -> 32
@@ -2594,11 +2602,23 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
      * (1 << (RESIZE_STAMP_BITS - 1)) => 1000 0000 0000 0000 => 32768
      * ---------------------------------------------------------------
      * 0000 0000 0001 1011
+     * 或运算
      * 1000 0000 0000 0000
+     *
+     * 等于
      * 1000 0000 0001 1011
+     *
+     * 或运算：有1为1，否则为0
      */
     static final int resizeStamp(int n) {
-        return Integer.numberOfLeadingZeros(n) | (1 << (RESIZE_STAMP_BITS - 1));
+        return Integer.numberOfLeadingZeros(n)
+                |
+                //RESIZE_STAMP_BITS = 16
+                (1 << (RESIZE_STAMP_BITS - 1));
+    }
+
+    public static void main(String[] args) {
+        System.out.println();
     }
 
     /**
