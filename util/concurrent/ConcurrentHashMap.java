@@ -686,6 +686,8 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * 1100 0011 1010 0101 1101 1111 1011 1011
      * 0111 1111 1111 1111 1111 1111 1111 1111
      * 0100 0011 1010 0101 1101 1111 1011 1011
+     *
+     * 扰动函数，目的是为了让 h 的高16位也参与到计算当中，目的还是为了使之更加散列
      */
     static final int spread(int h) {
         //&运算：相同为1，不同为0
@@ -1146,18 +1148,26 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
     final V putVal(K key, V value, boolean onlyIfAbsent) {
         //控制k 和 v 不能为null
         if (key == null || value == null) {
+            //TODO 为什么不能为null？
             throw new NullPointerException();
         }
 
         //通过spread方法，可以让高位也能参与进寻址运算。
         int hash = spread(key.hashCode());
+
         //binCount表示当前k-v 封装成node后插入到指定桶位后，在桶位中的所属链表的下标位置
-        //0 表示当前桶位为null，node可以直接放着
-        //2 表示当前桶位已经可能是红黑树
+        //如果为0 表示当前桶位为null，node可以直接放着
+        //如果为2 表示当前桶位已经可能是红黑树
+
+        //binCount 想要表达的意思
+        //添加的key-value 会封装到一个节点中，并且会把它放到某个桶位中
+        //如果该桶位之前的数据为null,则 binCount = 0;
+        //如果该桶位之前的数据不为null,则说明要插入到某个元素的后面，则 binCount 表示他在该链表中的下标
+        //如果插入的桶位已经树化了，则 binCount = 2,是一个固定值
         int binCount = 0;
 
         //tab 引用map对象的table
-        //自旋
+        //自旋，cpu一直在工作的
         for (Node<K, V>[] tab = table; ; ) {
             //f 表示桶位的头结点
             //n 表示散列表数组的长度
@@ -1167,19 +1177,29 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             int n, i, fh;
 
             //CASE1：成立，表示当前map中的table尚未初始化..
-            if (tab == null || (n = tab.length) == 0)
-            //最终当前线程都会获取到最新的map.table引用。
-            {
+            if (tab == null || (n = tab.length) == 0) {
+                //最终当前线程都会获取到最新的map.table引用。
                 tab = initTable();
             }
-            //CASE2：i 表示key使用路由寻址算法得到 key对应 table数组的下标位置，tabAt 获取指定桶位的头结点 f
+
+            //CASE2：i 表示key使用路由寻址算法得到 key 对应 table 数组的下标位置，
+            //tabAt 获取指定桶位的头结点 f
+
+            //n: 数组的长度
+            //hash：该 key 的 hash 值
+            //i = (n - 1) & hash ： 定位该key在该数组中的下标,下标为 i, 这个i 在后面的分支中可以直接使用
+            //f = tabAt(tab, i = (n - 1) & hash 就是定位该key 在该数组中的一个桶位，f 就是该桶位的头节点
+            //条件 f == null：说明该 key 所在桶位还是空的
             else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
                 //进入到CASE2代码块 前置条件 当前table数组i桶位是Null时。
                 //使用CAS方式 设置 指定数组i桶位 为 new Node<K,V>(hash, key, value, null),并且期望值是null
                 //cas操作成功 表示ok，直接break for循环即可
                 //cas操作失败，表示在当前线程之前，有其它线程先你一步向指定i桶位设置值了。
                 //当前线程只能再次自旋，去走其它逻辑。
-                if (casTabAt(tab, i, null,
+                if (casTabAt(
+                        tab,
+                        i,
+                        null,
                         new Node<K, V>(hash, key, value, null))) {
                     break;                   // no lock when adding to empty bin
                 }
@@ -1187,10 +1207,9 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
             //CASE3：前置条件，桶位的头结点一定不是null。
             //条件成立表示当前桶位的头结点 为 FWD结点，表示目前map正处于扩容过程中..
-            else if ((fh = f.hash) == MOVED)
-            //看到fwd节点后，当前节点有义务帮助当前map对象完成迁移数据的工作
-            //学完扩容后再来看。
-            {
+            else if ((fh = f.hash) == MOVED) {
+                //看到fwd节点后，当前节点有义务帮助当前map对象完成迁移数据的工作
+                //学完扩容后再来看。
                 tab = helpTransfer(tab, f);
             }
 
