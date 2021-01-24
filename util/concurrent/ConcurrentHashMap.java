@@ -1197,16 +1197,29 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 //cas操作失败，表示在当前线程之前，有其它线程先你一步向指定i桶位设置值了。
                 //当前线程只能再次自旋，去走其它逻辑。
                 if (casTabAt(
+                        //数组
                         tab,
+                        //要设置值的下标
                         i,
+                        //期望值，因为进入该if块的条件就是该节点为null，
+                        //但是也有可能有另外一个线程已经设置成功了，
+                        //则此处不为null，该线程就设置失败了
+                        //如果没有发生竞争的情况，则此处会成功
                         null,
+                        //要设置的值
                         new Node<K, V>(hash, key, value, null))) {
+
+                    //当前头节点为null,并且把生成的节点成功的放入到该节点，则完成了
                     break;                   // no lock when adding to empty bin
                 }
             }
 
             //CASE3：前置条件，桶位的头结点一定不是null。
             //条件成立表示当前桶位的头结点 为 FWD结点，表示目前map正处于扩容过程中..
+
+            //该key所在的槽位不是null
+            //fh:头节点的hash值，f:头节点
+            //MOVED：发生迁移的时候的概念
             else if ((fh = f.hash) == MOVED) {
                 //看到fwd节点后，当前节点有义务帮助当前map对象完成迁移数据的工作
                 //学完扩容后再来看。
@@ -1214,17 +1227,21 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             }
 
             //CASE4：当前桶位 可能是 链表 也可能是 红黑树代理结点TreeBin
+            //该槽位不为空，并且该map也不在扩容
             else {
                 //当插入key存在时，会将旧值赋值给oldVal，返回给put方法调用处..
                 V oldVal = null;
 
                 //使用sync 加锁“头节点”，理论上是“头结点”
+                //加锁粒度：数组槽位的头节点
+                //发生竞争条件：多个线程都需要在该槽位进行操作
                 synchronized (f) {
                     //为什么又要对比一下，看看当前桶位的头节点 是否为 之前获取的头结点？
                     //为了避免其它线程将该桶位的头结点修改掉，导致当前线程从sync 加锁 就有问题了。之后所有操作都不用在做了。
                     if (tabAt(tab, i) == f) {//条件成立，说明咱们 加锁 的对象没有问题，可以进来造了！
 
                         //条件成立，说明当前桶位就是普通链表桶位。
+                        //fh：头节点hash值
                         if (fh >= 0) {
                             //1.当前插入key与链表当中所有元素的key都不一致时，当前的插入操作是追加到链表的末尾，binCount表示链表长度
                             //2.当前插入key与链表当中的某个元素的key一致时，当前插入操作可能就是替换了。binCount表示冲突位置（binCount - 1）
@@ -1236,41 +1253,64 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                                 K ek;
                                 //条件一：e.hash == hash 成立 表示循环的当前元素的hash值与插入节点的hash值一致，需要进一步判断
                                 //条件二：((ek = e.key) == key ||(ek != null && key.equals(ek)))
-                                //       成立：说明循环的当前节点与插入节点的key一致，发生冲突了
-                                if (e.hash == hash &&
-                                        ((ek = e.key) == key ||
-                                                (ek != null && key.equals(ek)))) {
+                                //成立：说明循环的当前节点与插入节点的key一致，发生冲突了
+                                if (e.hash == hash //key冲突条件之一：hash值必须相同
+                                        &&
+                                        //key冲突条件之二：key的值也必须相同
+                                        ((ek = e.key) == key || (ek != null && key.equals(ek)))) {
+
+                                    //进入此分支：说明发生了冲突，替换即可
+
                                     //将当前循环的元素的 值 赋值给oldVal
                                     oldVal = e.val;
 
                                     if (!onlyIfAbsent) {
                                         e.val = value;
                                     }
+
+                                    //替换完成，循环结束，下面的代码也是不会执行的
                                     break;
                                 }
+
+                                //执行到这里，说明key没有发生冲突，上面的 break 并没有执行
+
                                 //当前元素 与 插入元素的key不一致 时，会走下面程序。
                                 //1.更新循环处理节点为 当前节点的下一个节点
-                                //2.判断下一个节点是否为null，如果是null，说明当前节点已经是队尾了，插入数据需要追加到队尾节点的后面。
+                                //2.判断下一个节点是否为null，如果是null，
+                                // 说明当前节点已经是队尾了，插入数据需要追加到队尾节点的后面。
 
+                                //TODO 双指针？
+                                //下面的处理方式很特殊
                                 Node<K, V> pred = e;
+
+                                //e = e.next：更新循环节点为当前节点的下一个节点
+                                //然后再判断下一个节点是否为null，
+                                //如果为null,则说明到队尾了，则插入到队尾
                                 if ((e = e.next) == null) {
-                                    pred.next = new Node<K, V>(hash, key,
-                                            value, null);
+                                    pred.next = new Node<K, V>(hash, key, value, null);
                                     break;
                                 }
+                                //如果 e.next != null, 那for循环继续，
+                                //在for循环中继续判断是否是key冲突，如果是则替换，直到链表尾部
                             }
                         }
+
+                        //f：当前头节点
                         //前置条件，该桶位一定不是链表
                         //条件成立，表示当前桶位是 红黑树代理结点TreeBin
                         else if (f instanceof TreeBin) {
-                            //p 表示红黑树中如果与你插入节点的key 有冲突节点的话 ，则putTreeVal 方法 会返回冲突节点的引用。
+
+                            //p 表示红黑树中如果与你插入节点的key 有冲突节点的话 ，
+                            //则putTreeVal 方法 会返回冲突节点的引用。
                             Node<K, V> p;
-                            //强制设置binCount为2，因为binCount <= 1 时有其它含义，所以这里设置为了2 回头讲 addCount。
+                            //强制 设置binCount为2，因为binCount <= 1 时有其它含义，
+                            //所以这里设置为了2 回头讲 addCount。
                             binCount = 2;
 
                             //条件一：成立，说明当前插入节点的key与红黑树中的某个节点的key一致，冲突了
-                            if ((p = ((TreeBin<K, V>) f).putTreeVal(hash, key,
-                                    value)) != null) {
+                            if ((p = ((TreeBin<K, V>) f).
+                                    putTreeVal(hash, key, value))//插入树中
+                                    != null) {//插入红黑树返回不为null,说明发生了冲突
                                 //将冲突节点的值 赋值给 oldVal
                                 oldVal = p.val;
                                 if (!onlyIfAbsent) {
@@ -1281,15 +1321,16 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                     }
                 }
 
+                //binCount
                 //说明当前桶位不为null，可能是红黑树 也可能是链表
                 if (binCount != 0) {
                     //如果binCount>=8 表示处理的桶位一定是链表
-                    if (binCount >= TREEIFY_THRESHOLD)
-                    //调用转化链表为红黑树的方法
-                    {
+                    if (binCount >= TREEIFY_THRESHOLD) {
+                        //调用转化链表为红黑树的方法
                         treeifyBin(tab, i);
                     }
                     //说明当前线程插入的数据key，与原有k-v发生冲突，需要将原数据v返回给调用者。
+                    //此处也说明，该并发map不支持null的value，否则此处代码就不对了
                     if (oldVal != null) {
                         return oldVal;
                     }
@@ -2655,43 +2696,62 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      */
     private final Node<K, V>[] initTable() {
         //tab 引用map.table
-        //sc sizeCtl的临时值
         Node<K, V>[] tab;
-        int sc;
+        //sc sizeCtl的临时值
+        int tempSizeCtl;
         //自旋 条件：map.table 尚未初始化
         while ((tab = table) == null || tab.length == 0) {
+            if ((tempSizeCtl = sizeCtl) < 0) {
+                //大概率就是-1，表示其它线程正在进行创建table的过程，
+                //当前线程没有竞争到初始化table的锁。
 
-            if ((sc = sizeCtl) < 0)
-            //大概率就是-1，表示其它线程正在进行创建table的过程，当前线程没有竞争到初始化table的锁。
-            {
+                //放弃初始化数组的竞争；自旋等待
+                /**
+                 * @see ConcurrentHashMap#sizeCtl
+                 */
                 Thread.yield(); // lost initialization race; just spin
             }
 
             //1.sizeCtl = 0，表示创建table数组时 使用DEFAULT_CAPACITY为大小
             //2.如果table未初始化，表示初始化大小
             //3.如果table已经初始化，表示下次扩容时的 触发条件（阈值）
-            else if (U.compareAndSwapInt(this, SIZECTL, sc, -1)) {
+
+            //上面的if分支表示扩容锁已经被占用，这里就表示，当前线程可以进行锁的竞争，如果成功的设置了 sizeCtl = -1;
+            else if (U.compareAndSwapInt(this, SIZECTL, tempSizeCtl, -1)) {
+
+                //说明竞争到了扩容锁
+
                 try {
-                    //这里为什么又要判断呢？ 防止其它线程已经初始化完毕了，然后当前线程再次初始化..导致丢失数据。
+                    //这里为什么又要判断呢？ 防止其它线程已经初始化完毕了，
+                    //然后当前线程再次初始化..导致丢失数据。
                     //条件成立，说明其它线程都没有进入过这个if块，当前线程就是具备初始化table权利了。
+
+                    //其实 while 条件中的 ((tab = table) == null || tab.length == 0)
+                    //并不是原子性的，存在同时多个线程进入while循环体的情况
                     if ((tab = table) == null || tab.length == 0) {
 
                         //sc大于0 创建table时 使用 sc为指定大小，否则使用 16 默认值.
-                        int n = (sc > 0) ? sc : DEFAULT_CAPACITY;
+                        int n = (tempSizeCtl > 0) ? tempSizeCtl : DEFAULT_CAPACITY;
 
                         @SuppressWarnings("unchecked")
                         Node<K, V>[] nt = (Node<K, V>[]) new Node<?, ?>[n];
                         //最终赋值给 map.table
                         table = tab = nt;
+
+                        //n >>> 2:n无符号右移两位
+                        //右移一位相当于 除以2
+                        //右移两位相当于除以4
                         //n >>> 2  => 等于 1/4 n     n - (1/4)n = 3/4 n => 0.75 * n
                         //sc 0.75 n 表示下一次扩容时的触发条件。
-                        sc = n - (n >>> 2);
+
+                        //相当于 0.75n
+                        tempSizeCtl = n - (n >>> 2);
                     }
                 } finally {
-                    //1.如果当前线程是第一次创建map.table的线程话，sc表示的是 下一次扩容的阈值
+                    //1.如果当前线程是第一次创建map.table的线程话，tempSizeCtl 表示的是 下一次扩容的阈值
                     //2.表示当前线程 并不是第一次创建map.table的线程，当前线程进入到else if 块 时，将
                     //sizeCtl 设置为了-1 ，那么这时需要将其修改为 进入时的值。
-                    sizeCtl = sc;
+                    sizeCtl = tempSizeCtl;
                 }
                 break;
             }
