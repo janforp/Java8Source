@@ -2586,29 +2586,40 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         final Node<K, V>[] nextTable;
 
         ForwardingNode(Node<K, V>[] tab) {
+            //此处固定了 hash 值为 -1
             super(MOVED, null, null, null);
             this.nextTable = tab;
         }
 
         Node<K, V> find(int h, Object k) {
+            //arbitrarily：任意地
             // loop to avoid arbitrarily deep recursion on forwarding nodes
             //tab 一定不为空
             Node<K, V>[] tab = nextTable;
+
+            //语法
             outer:
             for (; ; ) {
-                //n 表示为扩容而创建的 新表的长度
                 //e 表示在扩容而创建新表使用 寻址算法 得到的 桶位头结点
                 Node<K, V> e;
+
+                //n 表示为扩容而创建的 新表的长度
                 int n;
 
-                //条件一：永远不成立
-                //条件二：永远不成立
-                //条件三：永远不成立
-                //条件四：在新扩容表中 重新定位 hash 对应的头结点
-                //true -> 1.在oldTable中 对应的桶位在迁移之前就是null
-                //        2.扩容完成后，有其它写线程，将此桶位设置为了null
-                if (k == null || tab == null || (n = tab.length) == 0 ||
-                        (e = tabAt(tab, (n - 1) & h)) == null) {
+                if (
+                    //条件一：永远不成立
+                        k == null
+                                ||
+                                //条件二：永远不成立
+                                tab == null
+                                ||
+                                //条件三：永远不成立
+                                (n = tab.length) == 0
+                                ||
+                                //条件四：在新扩容表中 重新定位 hash 对应的头结点
+                                //true -> 1.在oldTable中 对应的桶位在迁移之前就是null
+                                //        2.扩容完成后，有其它写线程，将此桶位设置为了null
+                                (e = tabAt(tab, (n - 1) & h)) == null) {
                     return null;
                 }
 
@@ -2620,24 +2631,28 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
                 for (; ; ) {
                     //eh 新扩容后表指定桶位的当前节点的hash
-                    //ek 新扩容后表指定桶位的当前节点的key
                     int eh;
+
+                    //ek 新扩容后表指定桶位的当前节点的key
                     K ek;
                     //条件成立：说明新扩容 后的表，当前命中桶位中的数据，即为 查询想要数据。
-                    if ((eh = e.hash) == h &&
+                    if ((eh = e.hash) == h //hash相同
+                            &&
+                            //并且 key 也相同
                             ((ek = e.key) == k || (ek != null && k.equals(ek)))) {
                         return e;
                     }
 
                     //eh<0
-                    //1.TreeBin 类型    2.FWD类型（新扩容的表，在并发很大的情况下，可能在此方法 再次拿到FWD类型..）
+
                     if (eh < 0) {
                         if (e instanceof ForwardingNode) {
+                            //2.FWD类型（新扩容的表，在并发很大的情况下，可能在此方法 再次拿到FWD类型..）
                             tab = ((ForwardingNode<K, V>) e).nextTable;
                             continue outer;
-                        } else
-                        //说明此桶位 为 TreeBin 节点，使用TreeBin.find 查找红黑树中相应节点。
-                        {
+                        } else {
+                            //1.TreeBin 类型
+                            //说明此桶位 为 TreeBin 节点，使用TreeBin.find 查找红黑树中相应节点。
                             return e.find(h, k);
                         }
                     }
@@ -3088,14 +3103,18 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      */
     private final void transfer(Node<K, V>[] tab, Node<K, V>[] nextTab) {
         //n 表示扩容之前table数组的长度
+        int n = tab.length;
+
         //stride 表示分配给线程任务的步长
-        int n = tab.length, stride;
+        int stride;
         //方便讲解源码  stride 固定为 16
+
+        //计算步chang
         if ((stride = (NCPU > 1) ? (n >>> 3) / NCPU : n) < MIN_TRANSFER_STRIDE) {
             stride = MIN_TRANSFER_STRIDE; // subdivide range
         }
 
-        //条件成立：表示当前线程为触发本次扩容的线程，需要做一些扩容准备工作
+        //条件成立：表示当前线程为 触发 本次扩容的线程，需要做一些扩容准备工作
         //条件不成立：表示当前线程是协助扩容的线程..
         if (nextTab == null) {            // initiating
             try {
@@ -3123,13 +3142,14 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         boolean finishing = false; // to ensure sweep before committing nextTab
 
         //i 表示分配给当前线程任务，执行到的桶位
+        int i = 0;
         //bound 表示分配给当前线程任务的下界限制
-        int i = 0, bound = 0;
+        int bound = 0;
         //自旋
         for (; ; ) {
             //f 桶位的头结点
-            //fh 头结点的hash
             Node<K, V> f;
+            //fh 头结点的hash
             int fh;
 
             /**
@@ -3161,11 +3181,14 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 //前置条件：1、当前线程需要分配任务区间  2.全局范围内还有桶位尚未迁移
                 //条件成立：说明给当前线程分配任务成功
                 //条件失败：说明分配给当前线程失败，应该是和其它线程发生了竞争吧
-                else if (U.compareAndSwapInt
-                        (this, TRANSFERINDEX, nextIndex,
-                                nextBound = (nextIndex > stride ?
-                                        nextIndex - stride : 0))) {
-
+                else if (U.compareAndSwapInt(
+                        this,
+                        TRANSFERINDEX,
+                        nextIndex,
+                        nextBound = (nextIndex > stride ?
+                                nextIndex - stride
+                                :
+                                0))) {
                     bound = nextBound;
                     i = nextIndex - 1;
                     advance = false;
@@ -3189,14 +3212,13 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 if (U.compareAndSwapInt(this, SIZECTL, sc = sizeCtl, sc - 1)) {
                     //1000 0000 0001 1011 0000 0000 0000 0000
                     //条件成立：说明当前线程不是最后一个退出transfer任务的线程
-                    if ((sc - 2) != resizeStamp(n) << RESIZE_STAMP_SHIFT)
-                    //正常退出
-                    {
+                    if ((sc - 2) != resizeStamp(n) << RESIZE_STAMP_SHIFT) {
+                        //正常退出
                         return;
                     }
-
                     finishing = advance = true;
-                    i = n; // recheck before commit
+                    // recheck before commi
+                    i = n;
                 }
             }
             //前置条件：【CASE2~CASE4】 当前线程任务尚未处理完，正在进行中
@@ -3283,8 +3305,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                                 // h 表示循环处理当前元素的 hash
                                 int h = e.hash;
                                 //使用当前节点 构建出来的 新的 TreeNode
-                                TreeNode<K, V> p = new TreeNode<K, V>
-                                        (h, e.key, e.val, null, null);
+                                TreeNode<K, V> p = new TreeNode<K, V>(h, e.key, e.val, null, null);
 
                                 //条件成立：表示当前循环节点 属于低位链 节点
                                 if ((h & n) == 0) {
