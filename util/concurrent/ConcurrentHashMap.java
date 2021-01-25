@@ -2983,7 +2983,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                     }
 
                     //前置条件：当前table正在执行扩容中.. 当前线程有机会参与进扩容。
-                    //条件成立：说明当前线程成功参与到扩容任务中，并且将sc低16位值加1，表示多了一个线程参与工作
+                    //条件成立：说明当前线程成功参与到扩容任务中，并且将sc低16位值加1，表示多了一个线程参与扩容工作
                     //条件失败：1.当前有很多线程都在此处尝试修改sizeCtl，有其它一个线程修改成功了，导致你的sc期望值与内存中的值不一致 修改失败
                     //        2.transfer 任务内部的线程也修改了sizeCtl。
                     if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1)) {
@@ -3014,47 +3014,61 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      */
     final Node<K, V>[] helpTransfer(Node<K, V>[] tab, Node<K, V> f) {
         //nextTab 引用的是 fwd.nextTable == map.nextTable 理论上是这样。
-        //sc 保存map.sizeCtl
         Node<K, V>[] nextTab;
+        //sc 保存map.sizeCtl
         int sc;
 
-        //条件一：tab != null 恒成立 true
-        //条件二：(f instanceof ForwardingNode) 恒成立 true
-        //条件三：((ForwardingNode<K,V>)f).nextTable) != null 恒成立 true
-        if (tab != null && (f instanceof ForwardingNode) &&
-                (nextTab = ((ForwardingNode<K, V>) f).nextTable) != null) {
+        if (
+            //条件一：tab != null 恒成立 true
+                tab != null
+                        &&
+                        //条件二：(f instanceof ForwardingNode) 恒成立 true
+                        (f instanceof ForwardingNode)
+                        &&
+                        //条件三：((ForwardingNode<K,V>)f).nextTable) != null 恒成立 true
+                        (nextTab = ((ForwardingNode<K, V>) f).nextTable) != null) {
 
-            //拿当前标的长度 获取 扩容标识戳   假设 16 -> 32 扩容：1000 0000 0001 1011
+            //拿当前表的长度 获取 扩容标识戳   假设 16 -> 32 扩容：1000 0000 0001 1011
             int rs = resizeStamp(tab.length);
 
-            //条件一：nextTab == nextTable
-            //成立：表示当前扩容正在进行中
-            //不成立：1.nextTable被设置为Null 了，扩容完毕后，会被设为Null
-            //       2.再次出发扩容了...咱们拿到的nextTab 也已经过期了...
-            //条件二：table == tab
-            //成立：说明 扩容正在进行中，还未完成
-            //不成立：说明扩容已经结束了，扩容结束之后，最后退出的线程 会设置 nextTable 为 table
+            while (
+                //条件一：nextTab == nextTable
+                //成立：表示当前扩容正在进行中
+                //不成立：1.nextTable被设置为Null 了，扩容完毕后，会被设为Null
+                //       2.再次出发扩容了...咱们拿到的nextTab 也已经过期了...
+                    nextTab == nextTable
+                            &&
+                            //条件二：table == tab
+                            //成立：说明 扩容正在进行中，还未完成
+                            //不成立：说明扩容已经结束了，扩容结束之后，最后退出的线程 会设置 nextTable 为 table
+                            table == tab
+                            &&
+                            //条件三：(sc = sizeCtl) < 0
+                            //成立：说明扩容正在进行中
+                            //不成立：说明sizeCtl当前是一个大于0的数，此时代表下次扩容的阈值，当前扩容已经结束。
+                            (sc = sizeCtl) < 0) {
 
-            //条件三：(sc = sizeCtl) < 0
-            //成立：说明扩容正在进行中
-            //不成立：说明sizeCtl当前是一个大于0的数，此时代表下次扩容的阈值，当前扩容已经结束。
-            while (nextTab == nextTable && table == tab &&
-                    (sc = sizeCtl) < 0) {
-
-                //条件一：(sc >>> RESIZE_STAMP_SHIFT) != rs
-                //      true->说明当前线程获取到的扩容唯一标识戳 非 本批次扩容
-                //      false->说明当前线程获取到的扩容唯一标识戳 是 本批次扩容
-                //条件二： JDK1.8 中有bug jira已经提出来了 其实想表达的是 =  sc == (rs << 16 ) + 1
-                //        true-> 表示扩容完毕，当前线程不需要再参与进来了
-                //        false->扩容还在进行中，当前线程可以参与
-                //条件三：JDK1.8 中有bug jira已经提出来了 其实想表达的是 = sc == (rs<<16) + MAX_RESIZERS
-                //        true-> 表示当前参与并发扩容的线程达到了最大值 65535 - 1
-                //        false->表示当前线程可以参与进来
-                //条件四：transferIndex <= 0
-                //      true->说明map对象全局范围内的任务已经分配完了，当前线程进去也没活干..
-                //      false->还有任务可以分配。
-                if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 ||
-                        sc == rs + MAX_RESIZERS || transferIndex <= 0) {
+                if (
+                    //RESIZE_STAMP_SHIFT = 16
+                    //条件一：(sc >>> RESIZE_STAMP_SHIFT) != rs
+                    //      true->说明当前线程获取到的扩容唯一标识戳 非 本批次扩容
+                    //      false->说明当前线程获取到的扩容唯一标识戳 是 本批次扩容
+                        (sc >>> RESIZE_STAMP_SHIFT) != rs//判断扩容批次是否相同
+                                ||
+                                //条件二： JDK1.8 中有bug jira已经提出来了 其实想表达的是 =  sc == (rs << 16 ) + 1
+                                //        true-> 表示扩容完毕，当前线程不需要再参与进来了
+                                //        false->扩容还在进行中，当前线程可以参与
+                                sc == rs + 1//判断当前扩容是否进行中
+                                ||
+                                //条件三：JDK1.8 中有bug jira已经提出来了 其实想表达的是 = sc == (rs<<16) + MAX_RESIZERS
+                                //        true-> 表示当前参与并发扩容的线程达到了最大值 65535 - 1
+                                //        false->表示当前线程可以参与进来
+                                sc == rs + MAX_RESIZERS//判断参与扩容的线程是否到达最大值
+                                ||
+                                //条件四：transferIndex <= 0
+                                //      true->说明map对象全局范围内的任务已经分配完了，当前线程进去也没活干..
+                                //      false->还有任务可以分配。
+                                transferIndex <= 0) {//判断是否还有扩容任务能够分配给当前线程
                     break;
                 }
 
