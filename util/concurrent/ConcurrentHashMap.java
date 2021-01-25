@@ -1143,12 +1143,17 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
     }
 
     /**
+     * 可能同时有多个线程调用该函数
      * Implementation for put and putIfAbsent
+     *
+     * @param onlyIfAbsent 仅在此key不存在的时候才真正的添加
      */
     final V putVal(K key, V value, boolean onlyIfAbsent) {
         //控制k 和 v 不能为null
         if (key == null || value == null) {
             //TODO 为什么不能为null？
+            //1.null有特殊的用处
+            //2.容易造成歧义
             throw new NullPointerException();
         }
 
@@ -1162,8 +1167,9 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         //binCount 想要表达的意思
         //添加的key-value 会封装到一个节点中，并且会把它放到某个桶位中
         //如果该桶位之前的数据为null,则 binCount = 0;
-        //如果该桶位之前的数据不为null,则说明要插入到某个元素的后面，则 binCount 表示他在该链表中的下标
-        //如果插入的桶位已经树化了，则 binCount = 2,是一个固定值
+        //如果该桶位之前的数据不为null,则说明要插入到某个元素的后面，
+        // 1.则 binCount 表示他在该链表中的下标
+        // 2.如果插入的桶位已经树化了，则 binCount = 2,是一个固定值
         int binCount = 0;
 
         //tab 引用map对象的table
@@ -1281,6 +1287,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
                                 //TODO 双指针？
                                 //下面的处理方式很特殊
+                                //pred表示当前循环节点e的是上一个节点
                                 Node<K, V> pred = e;
 
                                 //e = e.next：更新循环节点为当前节点的下一个节点
@@ -1309,7 +1316,8 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
                             //条件一：成立，说明当前插入节点的key与红黑树中的某个节点的key一致，冲突了
                             if ((p = ((TreeBin<K, V>) f).
-                                    putTreeVal(hash, key, value))//插入树中
+                                    //不管是否冲突，该行都会插入一个元素
+                                            putTreeVal(hash, key, value))//插入树中，插入成功返回null，如果有冲突则返回该节点
                                     != null) {//插入红黑树返回不为null,说明发生了冲突
                                 //将冲突节点的值 赋值给 oldVal
                                 oldVal = p.val;
@@ -1322,7 +1330,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 }
 
                 //binCount
-                //说明当前桶位不为null，可能是红黑树 也可能是链表
+                //TODO 说明当前桶位不为null，可能是红黑树 也可能是链表
                 if (binCount != 0) {
                     //如果binCount>=8 表示处理的桶位一定是链表
                     if (binCount >= TREEIFY_THRESHOLD) {
