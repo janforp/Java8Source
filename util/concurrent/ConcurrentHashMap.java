@@ -564,9 +564,13 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
     /*
      * Encodings for Node hash fields. See above for explanation.
+     * 扩容中的节点的hash值
      */
     static final int MOVED = -1; // hash for forwarding nodes
 
+    /**
+     * 红黑树中的节点的hash值
+     */
     static final int TREEBIN = -2; // hash for roots of trees
 
     static final int RESERVED = -3; // hash for transient reservations
@@ -1264,13 +1268,17 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                             for (Node<K, V> e = firstNodeOfBucket; ; ++binCount) {
                                 //当前循环节点 key
                                 K ek;
-                                //条件一：e.hash == hash 成立 表示循环的当前元素的hash值与插入节点的hash值一致，需要进一步判断
-                                //条件二：((ek = e.key) == key ||(ek != null && key.equals(ek)))
-                                //成立：说明循环的当前节点与插入节点的key一致，发生冲突了
-                                if (e.hash == hash //key冲突条件之一：hash值必须相同
-                                        &&
-                                        //key冲突条件之二：key的值也必须相同
-                                        ((ek = e.key) == key || (ek != null && key.equals(ek)))) {
+
+                                //判断该链表中是否发生了key冲突
+                                if (
+                                    //条件一：e.hash == hash 成立 表示循环的当前元素的hash值与插入节点的hash值一致，需要进一步判断
+                                    //key冲突条件之一：hash值必须相同
+                                        e.hash == hash
+                                                &&
+                                                //条件二：((ek = e.key) == key ||(ek != null && key.equals(ek)))
+                                                //成立：说明循环的当前节点与插入节点的key一致，发生冲突了
+                                                //key冲突条件之二：key的值也必须相同
+                                                ((ek = e.key) == key || (ek != null && key.equals(ek)))) {
 
                                     //进入此分支：说明发生了冲突，替换即可
 
@@ -1303,16 +1311,20 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                                     pred.next = new Node<K, V>(hash, key, value, null);
                                     break;
                                 }
+                                //else {
                                 //如果 e.next != null, 那for循环继续，
                                 //在for循环中继续判断是否是key冲突，如果是则替换，直到链表尾部
+                                //}
                             }
                         }
 
                         //firstNodeOfBucket：当前头节点
                         //前置条件，该桶位一定不是链表
                         //条件成立，表示当前桶位是 红黑树代理结点TreeBin
-                        else if (firstNodeOfBucket instanceof TreeBin) {//TODO 如果进入该分支，则说明 fHash < 0,那么 fHash 什么时候赋值为 负数的呢？
-
+                        else if (firstNodeOfBucket instanceof TreeBin) {
+                            /**
+                             * @see TreeBin#TreeBin(util.concurrent.ConcurrentHashMap.TreeNode) 构造器中指定节点的hash=-2
+                             */
                             //p 表示红黑树中如果存在与你插入节点的key 有冲突节点的话 ，
                             //则putTreeVal 方法 会返回冲突节点的引用。否则返回null
                             Node<K, V> p;
@@ -1340,7 +1352,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 }
 
                 //binCount
-                //TODO 说明当前桶位不为null，可能是红黑树 也可能是链表
+                //==0,什么添加到了一个槽位为null的节点，当前槽位肯定不需要树化
                 if (binCount != 0) {
                     //如果binCount>=8 表示处理的桶位一定是链表
                     if (binCount >= TREEIFY_THRESHOLD) {
@@ -1359,6 +1371,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
         //1.统计当前table一共有多少数据
         //2.判断是否达到扩容阈值标准，触发扩容。
+        //binCount：0，添加到一个槽位的头节点，2：添加到一个红黑树，>0的其他数，添加到链表的尾部
         addCount(1L, binCount);
 
         return null;
@@ -2826,7 +2839,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * //2.判断是否达到扩容阈值标准，触发扩容。
      *
      * @param addNum the count to add
-     * @param check if <0, don't check resize, if <= 1 only check if uncontended
+     * @param check if <0, don't check resize, if <= 1 only check if uncontended， putVal 函数中的 binCount：0，添加到一个槽位的头节点，2：添加到一个红黑树，>0的其他数，添加到链表的尾部
      * @see java.util.concurrent.atomic.LongAdder 可以阅读该类帮助理解该函数
      */
     private final void addCount(long addNum, int check) {
@@ -2841,9 +2854,8 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             //       false->表示当前线程应该将数据累加到 base
                 (counterCellsRef = counterCells) != null
                         ||
-
                         //因为 || 为短路运算符，则进入该条件判断的前置条件：cells 还没有初始化,也就是第一个条件必须为false
-                        //如果 cas 成功，则取返回为 false,cas失败取反为 true，下面的描述为取反之后的
+                        //如果 cas 成功，则取反为 false,cas失败取反为 true，下面的描述为取反之后的
                         //条件二：false->表示写base成功，数据累加到base中了，当前竞争不激烈，不需要创建cells
                         //       true->表示写base失败，与其他线程在base上发生了竞争，当前线程应该去尝试创建cells。
                         !U.compareAndSwapLong(
@@ -2854,7 +2866,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                                 sizeOfTab = asBase + addNum)) {
             //有几种情况进入到if块中？
             //1.true->表示cells已经初始化了，当前线程应该去使用hash寻址找到合适的cell 去累加数据
-            //2.true->表示写base失败，与其他线程在base上发生了竞争，当前线程应该去尝试创建cells。
+            //2.true->cells没有初始化的时候，但是写base失败，与其他线程在base上发生了竞争，当前线程应该去尝试创建cells。
 
             //hitCell 表示当前线程hash寻址命中的cell
             CounterCell hitCell;
@@ -2864,7 +2876,6 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             int m;
             //true -> 未竞争  false->发生竞争
             boolean uncontended = true;
-
             if (
                 //条件一：counterCellsRef == null || (m = counterCellsRef.length - 1) < 0
                 // true-> 表示当前线程是通过 写base竞争失败 然后进入的if块，就需要调用fullAddCount方法去扩容 或者 重试.. LongAdder.longAccumulate
@@ -2876,13 +2887,15 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                             (hitCell = counterCellsRef[ThreadLocalRandom.getProbe() & m]) == null
                             ||
                             //因为 || 为短路运算符，则进入该条件判断的前置条件：cells已经初始化了，并且当前下次命中的cells槽位不为空
-                            //该条件其实在向名称的cell中添加数量，成功表示修改成功，然后 uncontended = ！true = false表示无竞争，
+                            //该条件其实在向命中的cell中添加数量，成功表示修改成功，然后 uncontended = ！true = false表示无竞争，
                             //失败表示当前命中的cell也发生了竞争，则 uncontended = ！false = true 表示有竞争，
                             //条件三：!(uncontended = U.compareAndSwapLong(hitCell, CELLVALUE, valueOfHitCell = hitCell.value, valueOfHitCell + addNum)
                             //      false->取反得到false，表示当前线程使用cas方式更新当前命中的cell成功
                             //      true->取反得到true,表示当前线程使用cas方式更新当前命中的cell失败，需要进入fullAddCount进行重试 或者 扩容 cells。
                             //则写入cell失败，表示有竞争，就进入了if代码块
-                            !(uncontended = U.compareAndSwapLong(hitCell, CELLVALUE,
+                            !(uncontended = U.compareAndSwapLong(//如果cas失败，则！false = true，会进入if代码块
+                                    hitCell, //修改对象
+                                    CELLVALUE,//字段内存偏移
                                     valueOfHitCell = hitCell.value, //期望值
                                     //更新值
                                     valueOfHitCell + addNum))) {
@@ -2896,11 +2909,11 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
             //check
             // >=1：链表的位置
-            // =0,头节点
             // =2：表示当前桶位树化了
+            // =0,头节点
             // <0:remove操作进来的
-            //TODO ？？？？？？
             if (check <= 1) {
+                //TODO ？？？？？？
                 return;
             }
 
@@ -2947,6 +2960,8 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                             //条件三：(n = tab.length) < MAXIMUM_CAPACITY
                             //       true->当前table长度小于最大值限制，则可以进行扩容。否则就不要扩容了
                             (n = tab.length) < MAXIMUM_CAPACITY) {
+
+                //进来扩容，或者帮忙扩容
 
                 //扩容批次唯一标识戳
                 //16 -> 32 扩容 标识为：1000 0000 0001 1011
