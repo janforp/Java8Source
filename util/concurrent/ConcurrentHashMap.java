@@ -1175,12 +1175,17 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         //tab 引用map对象的table
         //自旋，cpu一直在工作的
         for (Node<K, V>[] tab = table; ; ) {
-            //f 表示桶位的头结点
+            //firstNodeOfBucket 表示桶位的头结点
+            Node<K, V> firstNodeOfBucket;
+
             //n 表示散列表数组的长度
-            //i 表示key通过寻址计算后，得到的桶位下标
+            int n;
+
+            //index 表示key通过寻址计算后，得到的桶位下标
+            int index;
+
             //fh 表示桶位头结点的hash值
-            Node<K, V> f;
-            int n, i, fh;
+            int fHash;
 
             //CASE1：成立，表示当前map中的table尚未初始化..
             if (tab == null || (n = tab.length) == 0) {
@@ -1188,26 +1193,28 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 tab = initTable();
             }
 
-            //CASE2：i 表示key使用路由寻址算法得到 key 对应 table 数组的下标位置，
-            //tabAt 获取指定桶位的头结点 f
+            //CASE2：index 表示key使用路由寻址算法得到 key 对应 table 数组的下标位置，
+            //tabAt 获取指定桶位的头结点 firstNodeOfBucket
 
-            //n: 数组的长度
+            //n: 数组的长度，在前一个if中赋值的
             //hash：该 key 的 hash 值
-            //i = (n - 1) & hash ： 定位该key在该数组中的下标,下标为 i, 这个i 在后面的分支中可以直接使用
-            //f = tabAt(tab, i = (n - 1) & hash 就是定位该key 在该数组中的一个桶位，f 就是该桶位的头节点
-            //条件 f == null：说明该 key 所在桶位还是空的
-            else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
+            //index = (n - 1) & hash ： 定位该key在该数组中的下标,下标为 index, 这个 index 在后面的分支中可以直接使用
+            //firstNodeOfBucket = tabAt(tab, index = (n - 1) & hash) 就是定位该key 在该数组中的一个桶位，firstNodeOfBucket 就是该桶位的头节点
+            //条件 firstNodeOfBucket == null：说明该 key 所在桶位还是空的
+            else if ((firstNodeOfBucket = tabAt(tab, index = (n - 1) & hash)) == null) {
+                //进入条件：firstNodeOfBucket 为 null
+
                 //进入到CASE2代码块 前置条件 当前table数组i桶位是Null时。
-                //使用CAS方式 设置 指定数组i桶位 为 new Node<K,V>(hash, key, value, null),并且期望值是null
+                //使用CAS方式 设置 指定数组 index 桶位 为 new Node<K,V>(hash, key, value, null),并且期望值是null
                 //cas操作成功 表示ok，直接break for循环即可
-                //cas操作失败，表示在当前线程之前，有其它线程先你一步向指定i桶位设置值了。
+                //cas操作失败，表示在当前线程之前，有其它线程先你一步向指定 index 桶位设置值了。
                 //当前线程只能再次自旋，去走其它逻辑。
-                if (casTabAt(
+                if (casTabAt(//比较交换tab数组的第 index 个桶位的值
                         //数组
                         tab,
                         //要设置值的下标
-                        i,
-                        //期望值，因为进入该if块的条件就是该节点为null，
+                        index,
+                        //期望值，因为进入该if块的条件就是该节点为null，所以期望值也是 null
                         //但是也有可能有另外一个线程已经设置成功了，
                         //则此处不为null，该线程就设置失败了
                         //如果没有发生竞争的情况，则此处会成功
@@ -1220,20 +1227,21 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 }
             }
 
-            //CASE3：前置条件，桶位的头结点一定不是null。
+            //CASE3：前置条件，数组已经初始化并且 index 桶位的头结点一定不是null。
             //条件成立表示当前桶位的头结点 为 FWD结点，表示目前map正处于扩容过程中..
 
             //该key所在的槽位不是null
-            //fh:头节点的hash值，f:头节点
+            //fHash:头节点的hash值，firstNodeOfBucket:头节点
             //MOVED：发生迁移的时候的概念
-            else if ((fh = f.hash) == MOVED) {
+            else if ((fHash = firstNodeOfBucket.hash) == MOVED) {
                 //看到fwd节点后，当前节点有义务帮助当前map对象完成迁移数据的工作
                 //学完扩容后再来看。
-                tab = helpTransfer(tab, f);
+                tab = helpTransfer(tab, firstNodeOfBucket);
             }
 
-            //CASE4：当前桶位 可能是 链表 也可能是 红黑树代理结点TreeBin
-            //该槽位不为空，并且该map也不在扩容
+            //CASE4：数组已经初始化，并且 firstNodeOfBucket 有值了，并且当前也没有发生扩容，
+            //则当前桶位 可能是 链表 也可能是 红黑树代理结点TreeBin
+            //总之：进入该分支的前提为该槽位不为空，并且该map也不在扩容
             else {
                 //当插入key存在时，会将旧值赋值给oldVal，返回给put方法调用处..
                 V oldVal = null;
@@ -1241,20 +1249,19 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 //使用sync 加锁“头节点”，理论上是“头结点”
                 //加锁粒度：数组槽位的头节点
                 //发生竞争条件：多个线程都需要在该槽位进行操作
-                synchronized (f) {
+                synchronized (firstNodeOfBucket) {
                     //为什么又要对比一下，看看当前桶位的头节点 是否为 之前获取的头结点？
                     //为了避免其它线程将该桶位的头结点修改掉，导致当前线程从sync 加锁 就有问题了。之后所有操作都不用在做了。
-                    if (tabAt(tab, i) == f) {//条件成立，说明咱们 加锁 的对象没有问题，可以进来造了！
+                    if (tabAt(tab, index) == firstNodeOfBucket) {//条件成立，说明咱们 加锁 的对象没有问题，可以进来造了！
 
-                        //条件成立，说明当前桶位就是普通链表桶位。
-                        //fh：头节点hash值
-                        if (fh >= 0) {
+                        //fHash：头节点hash值
+                        if (fHash >= 0) {//条件成立，说明当前桶位就是普通链表桶位。
                             //1.当前插入key与链表当中所有元素的key都不一致时，当前的插入操作是追加到链表的末尾，binCount表示链表长度
                             //2.当前插入key与链表当中的某个元素的key一致时，当前插入操作可能就是替换了。binCount表示冲突位置（binCount - 1）
                             binCount = 1;
 
                             //迭代循环当前桶位的链表，e是每次循环处理节点。
-                            for (Node<K, V> e = f; ; ++binCount) {
+                            for (Node<K, V> e = firstNodeOfBucket; ; ++binCount) {
                                 //当前循环节点 key
                                 K ek;
                                 //条件一：e.hash == hash 成立 表示循环的当前元素的hash值与插入节点的hash值一致，需要进一步判断
@@ -1285,7 +1292,6 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                                 //2.判断下一个节点是否为null，如果是null，
                                 // 说明当前节点已经是队尾了，插入数据需要追加到队尾节点的后面。
 
-                                //TODO 双指针？
                                 //下面的处理方式很特殊
                                 //pred表示当前循环节点e的是上一个节点
                                 Node<K, V> pred = e;
@@ -1302,26 +1308,30 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                             }
                         }
 
-                        //f：当前头节点
+                        //firstNodeOfBucket：当前头节点
                         //前置条件，该桶位一定不是链表
                         //条件成立，表示当前桶位是 红黑树代理结点TreeBin
-                        else if (f instanceof TreeBin) {
+                        else if (firstNodeOfBucket instanceof TreeBin) {//TODO 如果进入该分支，则说明 fHash < 0,那么 fHash 什么时候赋值为 负数的呢？
 
-                            //p 表示红黑树中如果与你插入节点的key 有冲突节点的话 ，
-                            //则putTreeVal 方法 会返回冲突节点的引用。
+                            //p 表示红黑树中如果存在与你插入节点的key 有冲突节点的话 ，
+                            //则putTreeVal 方法 会返回冲突节点的引用。否则返回null
                             Node<K, V> p;
                             //强制 设置binCount为2，因为binCount <= 1 时有其它含义，
                             //所以这里设置为了2 回头讲 addCount。
                             binCount = 2;
 
                             //条件一：成立，说明当前插入节点的key与红黑树中的某个节点的key一致，冲突了
-                            if ((p = ((TreeBin<K, V>) f).
+                            //putTreeVal(hash, key, value) 添加一个节点到树中,如果 key 发生冲突，则返回冲突节点，否则返回 null
+                            //p = putTreeVal(hash, key, value) 把添加接口返回的数据赋值给 p
+                            //p != null，则说明发生了 key 冲突，此时为一个替换操作
+                            if ((p = ((TreeBin<K, V>) firstNodeOfBucket).
                                     //不管是否冲突，该行都会插入一个元素
                                             putTreeVal(hash, key, value))//插入树中，插入成功返回null，如果有冲突则返回该节点
                                     != null) {//插入红黑树返回不为null,说明发生了冲突
                                 //将冲突节点的值 赋值给 oldVal
                                 oldVal = p.val;
                                 if (!onlyIfAbsent) {
+                                    //只有 满足 条件 才真正替换 value
                                     p.val = value;
                                 }
                             }
@@ -1335,7 +1345,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                     //如果binCount>=8 表示处理的桶位一定是链表
                     if (binCount >= TREEIFY_THRESHOLD) {
                         //调用转化链表为红黑树的方法
-                        treeifyBin(tab, i);
+                        treeifyBin(tab, index);
                     }
                     //说明当前线程插入的数据key，与原有k-v发生冲突，需要将原数据v返回给调用者。
                     //此处也说明，该并发map不支持null的value，否则此处代码就不对了
@@ -2690,15 +2700,16 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
     }
 
     /**
+     * 使用sizeCtl中记录的大小初始化表。
      * Initializes table, using the size recorded in sizeCtl.
+     *
      * * sizeCtl < 0
-     * * 1. -1 表示当前table正在初始化（有线程在创建table数组），当前线程需要自旋等待..
-     * * 2.表示当前table数组正在进行扩容 ,高16位表示：扩容的标识戳   低16位表示：（1 + nThread） 当前参与并发扩容的线程数量
+     * * 1. 如果为-1 表示当前table 正在 初始化（有线程在创建table数组），当前线程需要自旋等待..
+     * * 2. 如果不为-1，而是其他的负数，表示当前table数组正在进行扩容 ,高16位表示：扩容的标识戳，低16位表示：当前参与并发扩容的线程数量（1 + nThread）
      * *
-     * * sizeCtl = 0，表示创建table数组时 使用DEFAULT_CAPACITY为大小
+     * * sizeCtl = 0，表示创建table数组时 使用 DEFAULT_CAPACITY 为大小
      * *
      * * sizeCtl > 0
-     * *
      * * 1. 如果table未初始化，表示初始化大小
      * * 2. 如果table已经初始化，表示下次扩容时的 触发条件（阈值）
      */
@@ -2707,25 +2718,39 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         Node<K, V>[] tab;
         //sc sizeCtl的临时值
         int tempSizeCtl;
+
         //自旋 条件：map.table 尚未初始化
         while ((tab = table) == null || tab.length == 0) {
+
+            //tempSizeCtl 赋值为 sizeCtl
             if ((tempSizeCtl = sizeCtl) < 0) {
                 //大概率就是-1，表示其它线程正在进行创建table的过程，
                 //当前线程没有竞争到初始化table的锁。
+
+                //该分支总结：因为该函数为初始化接口，肯定不会存在扩容的场景
+                //又因为 sizeCtl 默认为0，所以如果此时sizeCtl < 0 的时候
+                //肯定为 -1，这就说明有其他线程已经获取到锁了
+                //则进入该分支的线程就让出cpu
 
                 //放弃初始化数组的竞争；自旋等待
                 /**
                  * @see ConcurrentHashMap#sizeCtl
                  */
+                //TODO yield() 之后 finally 中的代码什么时候执行？？
                 Thread.yield(); // lost initialization race; just spin
             }
 
+            //进入下面的分支，就说明 tempSizeCtl 肯定不是 -1;
             //1.sizeCtl = 0，表示创建table数组时 使用DEFAULT_CAPACITY为大小
             //2.如果table未初始化，表示初始化大小
             //3.如果table已经初始化，表示下次扩容时的 触发条件（阈值）
 
             //上面的if分支表示扩容锁已经被占用，这里就表示，当前线程可以进行锁的竞争，如果成功的设置了 sizeCtl = -1;
-            else if (U.compareAndSwapInt(this, SIZECTL, tempSizeCtl, -1)) {
+            else if (U.compareAndSwapInt(
+                    this, //当前对象
+                    SIZECTL, //表示sizeCtl属性在ConcurrentHashMap中内存偏移地址
+                    tempSizeCtl,//期望值
+                    -1)) {//锁上：设置为-1，如果设置成功，则该线程负责创建数组
 
                 //说明竞争到了扩容锁
 
@@ -2736,23 +2761,35 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
                     //其实 while 条件中的 ((tab = table) == null || tab.length == 0)
                     //并不是原子性的，存在同时多个线程进入while循环体的情况
+                    //TODO 其实这里为什么再次判断，我还不是很理解
                     if ((tab = table) == null || tab.length == 0) {
 
                         //sc大于0 创建table时 使用 sc为指定大小，否则使用 16 默认值.
-                        int n = (tempSizeCtl > 0) ? tempSizeCtl : DEFAULT_CAPACITY;
+                        int n =
+                                //此时 this 对象的 sizeCtl 已经设置成了 -1，tempSizeCtl 为 sizeCtl 之前的值
+                                (tempSizeCtl > 0) ?
+                                        tempSizeCtl //如果 sizeCtl 的值大于零，并且目前数组是没有初始化的，所以数组初始化大小就是 tempSizeCtl
+                                        :
+                                        DEFAULT_CAPACITY;//如果 tempSizeCtl 不大于0,则此时只能等于0，则使用默认大小去初始化数组
 
+                        //直接 new  一个长度为 n 的数组, 没错这就是初始化了
                         @SuppressWarnings("unchecked")
                         Node<K, V>[] nt = (Node<K, V>[]) new Node<?, ?>[n];
                         //最终赋值给 map.table
                         table = tab = nt;
 
                         //n >>> 2:n无符号右移两位
+
                         //右移一位相当于 除以2
                         //右移两位相当于除以4
                         //n >>> 2  => 等于 1/4 n     n - (1/4)n = 3/4 n => 0.75 * n
                         //sc 0.75 n 表示下一次扩容时的触发条件。
 
                         //相当于 0.75n
+
+                        //初始化完成之后， sizeCtl 如果 >0 ,则表示数组下次扩容的阈值
+                        //tempSizeCtl = n - (n/4)
+                        //也就是 下次扩容的阈值为 0.75n
                         tempSizeCtl = n - (n >>> 2);
                     }
                 } finally {
