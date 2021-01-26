@@ -1150,6 +1150,23 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * 可能同时有多个线程调用该函数
      * Implementation for put and putIfAbsent
      *
+     * put方法做了以下几点事情：
+     *
+     * 1）如果没有初始化就先调用initTable()方法来进行初始化过程
+     *
+     * 2）如果没有hash冲突就尝试CAS方式插入
+     *
+     * 3）如果还在进行扩容操作就先帮助其它线程进一起行扩容
+     *
+     * 4）如果存在hash冲突，就加锁来保证put操作的线程安全。
+     *
+     * 有意思的是，ConcurrentHashMap中并没有使用ReentrantLock，而是直接使用了synchronized关键字对槽加锁。
+     * 个人猜测，这样做的原因是避免创建过多的锁对象。如果桶的长度是1024（别问我为啥是这个值，我只是考虑到了它是2的整数次幂，如果你联想到了其它不宜公开讨论的内容，请告诉我地址），
+     * 那么我们就需要在每个桶的位置上分配一把锁，也就要1024把锁，考虑到每次扩容后都还要重新创建所有的锁对象，这显然是不划算的。
+     *
+     * 添加结点操作完成后会调用addCount方法，在addCount方法中会去判断是否需要扩容操作。
+     * 如果容量超过阀值了，就由这个线程发起扩容操作。如果已经处于扩容状态（sizeCtl < -1），根据剩余迁移的数据和已参加到扩容中的线程数来判断是否需要当前线程来帮助扩容。
+     *
      * @param onlyIfAbsent 仅在此key不存在的时候才真正的添加
      */
     final V putVal(K key, V value, boolean onlyIfAbsent) {
@@ -1205,6 +1222,9 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             //index = (n - 1) & hash ： 定位该key在该数组中的下标,下标为 index, 这个 index 在后面的分支中可以直接使用
             //firstNodeOfBucket = tabAt(tab, index = (n - 1) & hash) 就是定位该key 在该数组中的一个桶位，firstNodeOfBucket 就是该桶位的头节点
             //条件 firstNodeOfBucket == null：说明该 key 所在桶位还是空的
+
+            //每次循环都会重新计算槽的位置 index ，因为可能刚好完成扩容操作
+            //扩容完成后会使用新表，槽的位置可能会发生改变
             else if ((firstNodeOfBucket = tabAt(tab, index = (n - 1) & hash)) == null) {
                 //进入条件：firstNodeOfBucket 为 null
 
@@ -1240,6 +1260,8 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             else if ((fHash = firstNodeOfBucket.hash) == MOVED) {
                 //看到fwd节点后，当前节点有义务帮助当前map对象完成迁移数据的工作
                 //学完扩容后再来看。
+
+                //当前线程先帮助迁移,迁移完成后在新表中进行put
                 tab = helpTransfer(tab, firstNodeOfBucket);
             }
 
@@ -1254,10 +1276,17 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 //加锁粒度：数组槽位的头节点
                 //发生竞争条件：多个线程都需要在该槽位进行操作
                 synchronized (firstNodeOfBucket) {
+
+                    //头结点发生改变，就说明当前链表（或红黑树）的头节点已不是f了
+                    //可能被前面的线程remove掉了或者迁移到新表上了
+                    //如果被remove掉了，需要重新对链表新的头节点加锁
+
                     //为什么又要对比一下，看看当前桶位的头节点 是否为 之前获取的头结点？
                     //为了避免其它线程将该桶位的头结点修改掉，导致当前线程从sync 加锁 就有问题了。之后所有操作都不用在做了。
                     if (tabAt(tab, index) == firstNodeOfBucket) {//条件成立，说明咱们 加锁 的对象没有问题，可以进来造了！
 
+                        //ForwordingNode的hash值为-1
+                        //链表结点的hash值 >= 0
                         //fHash：头节点hash值
                         if (fHash >= 0) {//条件成立，说明当前桶位就是普通链表桶位。
                             //1.当前插入key与链表当中所有元素的key都不一致时，当前的插入操作是追加到链表的末尾，binCount表示链表长度
@@ -1321,6 +1350,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                         //firstNodeOfBucket：当前头节点
                         //前置条件，该桶位一定不是链表
                         //条件成立，表示当前桶位是 红黑树代理结点TreeBin
+                        //红黑树的根结点的hash值为-2
                         else if (firstNodeOfBucket instanceof TreeBin) {
                             /**
                              * @see TreeBin#TreeBin(util.concurrent.ConcurrentHashMap.TreeNode) 构造器中指定节点的hash=-2
@@ -1415,18 +1445,21 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         //自旋
         for (Node<K, V>[] tab = table; ; ) {
             //f表示桶位头结点
-            //n表示当前table数组长度
-            //i表示hash命中桶位下标
-            //fh表示桶位头结点 hash
+
             Node<K, V> f;
-            int n, i, fh;
+            //n表示当前table数组长度
+            int n,
+                    //i表示hash命中桶位下标
+                    i,
+                    //fh表示桶位头结点 hash
+                    fh;
 
             //CASE1：
             //条件一：tab == null  true->表示当前map.table尚未初始化..  false->已经初始化
             //条件二：(n = tab.length) == 0  true->表示当前map.table尚未初始化..  false->已经初始化
-            //条件三：(f = tabAt(tab, i = (n - 1) & hash)) == null true -> 表示命中桶位中为null，直接break， 会返回
-            if (tab == null || (n = tab.length) == 0 ||
-                    (f = tabAt(tab, i = (n - 1) & hash)) == null) {
+            //条件三：(f = tabAt(tab, i = (n - 1) & hash)) == null true -> 表示命中桶位中为null，直接break， 会返回null
+            if (tab == null || (n = tab.length) == 0 || (f = tabAt(tab, i = (n - 1) & hash)) == null) {
+                //数组没有初始化或者对应槽位的头节点为null，说明当前remove的key根本不存在
                 break;
             }
 
@@ -1517,17 +1550,14 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                             //条件一：(r = t.root) != null 理论上是成立
                             //条件二：TreeNode.findTreeNode 以当前节点为入口，向下查找key（包括本身节点）
                             //      true->说明查找到相应key 对应的node节点。会赋值给p
-                            if ((r = t.root) != null &&
-                                    (p = r.findTreeNode(hash, key, null)) != null) {
+                            if ((r = t.root) != null && (p = r.findTreeNode(hash, key, null)) != null) {
                                 //保存p.val 到pv
                                 V pv = p.val;
 
                                 //条件一：cv == null  成立：不必对value，就做替换或者删除操作
                                 //条件二：cv == pv ||(pv != null && cv.equals(pv)) 成立：说明“对比值”与当前p节点的值 一致
-                                if (cv == null || cv == pv ||
-                                        (pv != null && cv.equals(pv))) {
+                                if (cv == null || cv == pv || (pv != null && cv.equals(pv))) {
                                     //替换或者删除操作
-
                                     oldVal = pv;
 
                                     //条件成立：替换操作
@@ -1536,9 +1566,8 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                                     }
 
                                     //删除操作
-                                    else if (t.removeTreeNode(p))
-                                    //这里没做判断，直接搞了...很疑惑
-                                    {
+                                    else if (t.removeTreeNode(p)) {
+                                        //这里没做判断，直接搞了...很疑惑
                                         setTabAt(tab, i, untreeify(t.first));
                                     }
                                 }
@@ -2596,6 +2625,9 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      */
     static final class ForwardingNode<K, V> extends Node<K, V> {
 
+        /**
+         * 扩容之后表的引用
+         */
         final Node<K, V>[] nextTable;
 
         ForwardingNode(Node<K, V>[] tab) {
@@ -3146,27 +3178,36 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
     }
 
     /**
+     * 注意：扩容长度翻倍并且扩容后长度仍然是2的整数次幂的特性在多线程扩容有很大的优势。原表中不同桶上的结点，
+     * 在新表上一定不会分配到相同位置的槽上。我们可以让不同线程负责原表不同位置的桶中所有结点的迁移，这样两个线程的迁移操作是不会相互干扰的。
+     *
+     * https://www.cnblogs.com/nullzx/p/8647220.html
+     *
      * Moves and/or copies the nodes in each bin to new table. See
      * above for explanation.
+     *
+     * @param tab 扩容前的数组
+     * @param nextTab 触发调入为null,协助调入有引用
      */
     private final void transfer(Node<K, V>[] tab, Node<K, V>[] nextTab) {
         //n 表示扩容之前table数组的长度
         int n = tab.length;
 
         //stride 表示分配给线程任务的步长
+        //每个线程都会分配一个桶区间
         int stride;
         //方便讲解源码  stride 固定为 16
-
-        //计算步chang
+        //根据cpu的个数计算步长
         if ((stride = (NCPU > 1) ? (n >>> 3) / NCPU : n) < MIN_TRANSFER_STRIDE) {
             stride = MIN_TRANSFER_STRIDE; // subdivide range
         }
 
         //条件成立：表示当前线程为 触发 本次扩容的线程，需要做一些扩容准备工作
         //条件不成立：表示当前线程是协助扩容的线程..
-        if (nextTab == null) {            // initiating
+        if (nextTab == null) {//如果当前线程是触发扩容线程，则 nextTab 是 null，如果是协助扩容线程，则不为null
             try {
                 //创建了一个比扩容之前大一倍的table
+                //n << 1 等于 2 * n
                 @SuppressWarnings("unchecked")
                 Node<K, V>[] nt = (Node<K, V>[]) new Node<?, ?>[n << 1];
                 nextTab = nt;
@@ -3174,17 +3215,20 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 sizeCtl = Integer.MAX_VALUE;
                 return;
             }
-            //赋值给对象属性 nextTable ，方便协助扩容线程 拿到新表
+            //赋值给对象属性 nextTable ，方便协助扩容线程 拿到新表引用
             nextTable = nextTab;
-            //记录迁移数据整体位置的一个标记。index计数是从1开始计算的。
+            //记录迁移数据整体位置的一个标记。index计数是从1开始计算的。也就是数组的0下标对应的trabsferIndex=1
+            //目的是方便计算
+            //迁移从高位往低位迁移
             transferIndex = n;
         }
 
         //表示新数组的长度
         int nextn = nextTab.length;
-        //fwd 节点，当某个桶位数据处理完毕后，将此桶位设置为fwd节点，其它写线程 或读线程看到后，会有不同逻辑。
+        //fwd 节点，当某个桶位数据处理完毕后，将此桶位设置为fwd节点，
+        //TODO 其它写线程 或读线程看到后，会有不同逻辑。具体是什么？
         ForwardingNode<K, V> fwd = new ForwardingNode<K, V>(nextTab);
-        //推进标记
+        //是否继续推进标记
         boolean advance = true;
         //完成标记
         boolean finishing = false; // to ensure sweep before committing nextTab
@@ -3192,6 +3236,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         //i 表示分配给当前线程任务，执行到的桶位
         int i = 0;
         //bound 表示分配给当前线程任务的下界限制
+        //假设当前线程负责处理的区间为15-10，那么bound=10的时候就表示处理完成了
         int bound = 0;
         //自旋
         for (; ; ) {
@@ -3201,24 +3246,31 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             int fh;
 
             /**
+             * 该while代码块做的事情：
              * 1.给当前线程分配任务区间
              * 2.维护当前线程任务进度（i 表示当前处理的桶位）
              * 3.维护map对象全局范围内的进度
              */
             while (advance) {
                 //分配任务的开始下标
-                //分配任务的结束下标
-                int nextIndex, nextBound;
+                int nextIndex,
+                        //分配任务的结束下标
+                        nextBound;
 
                 //CASE1:
-                //条件一：--i >= bound
-                //成立：表示当前线程的任务尚未完成，还有相应的区间的桶位要处理，--i 就让当前线程处理下一个 桶位.
-                //不成立：表示当前线程任务已完成 或 者未分配
-                if (--i >= bound || finishing) {
+                if (
+                    //成立：表示当前线程的任务尚未完成，还有相应的区间的桶位要处理，--i 就让当前线程处理下一个 桶位.
+                    //不成立：表示当前线程任务已完成 或 者未分配
+                    //i=0,--i => i = -1,bound = 0;
+                    // -1 >= 0 ? false
+                        --i >= bound
+                                ||
+                                finishing) {
                     advance = false;
                 }
                 //CASE2:
-                //前置条件：当前线程任务已完成 或 者未分配
+                //TODO 前置条件：当前线程任务已完成 或 者未分配，这个前置条件不是很理解???
+                //transferIndex 为全局处理进度，因为 transferIndex 从 n 开始，到 1 结束
                 //条件成立：表示对象全局范围内的桶位都分配完毕了，没有区间可分配了，设置当前线程的i变量为-1 跳出循环后，执行退出迁移任务相关的程序
                 //条件不成立：表示对象全局范围内的桶位尚未分配完毕，还有区间可分配
                 else if ((nextIndex = transferIndex) <= 0) {
@@ -3231,13 +3283,24 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 //条件失败：说明分配给当前线程失败，应该是和其它线程发生了竞争吧
                 else if (U.compareAndSwapInt(
                         this,
-                        TRANSFERINDEX,
-                        nextIndex,
-                        nextBound = (nextIndex > stride ?
-                                nextIndex - stride
-                                :
-                                0))) {
+                        TRANSFERINDEX,//更新全局范围的 transferIndex 其他线程能看见的
+                        nextIndex,//期望值transferIndex
+
+                        //最终赋值给了下界
+                        nextBound = (//分配任务区间的逻辑
+                                //剩余的(transferIndex)未分配的区间是否超过步长长度？
+                                nextIndex > stride ?
+                                        //如果够，则直接分配一个步长的区间给当前线程
+                                        nextIndex - stride
+                                        :
+                                        //不够了，则把 transferIndex 改为0，全部都分配给当前线程
+                                        0
+                        ))) {
+                    //分配成功了
+
                     bound = nextBound;
+
+                    //因为 transferIndex 从1开始，数组下标从 0 开始
                     i = nextIndex - 1;
                     advance = false;
                 }
@@ -3246,6 +3309,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             //CASE1：
             //条件一：i < 0
             //成立：表示当前线程未分配到任务
+            //处理：线程任务完成后。线程退出transfer方法的逻辑
             if (i < 0 || i >= n || i + n >= nextn) {
                 //保存sizeCtl 的变量
                 int sc;
@@ -3270,6 +3334,12 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 }
             }
             //前置条件：【CASE2~CASE4】 当前线程任务尚未处理完，正在进行中
+
+            /**
+             *  上面线程处理一个桶位数据的迁移工作，处理完毕之后设置 advance = true,表示继续推进，然后继续回到 for 循环的开头
+             *
+             *  下面是正在迁移工作
+             */
 
             //CASE2:
             //条件成立：说明当前桶位未存放数据，只需要将此处设置为fwd节点即可。
@@ -6857,8 +6927,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
     }
 
     @SuppressWarnings("serial")
-    static final class MapReduceKeysTask<K, V, U>
-            extends BulkTask<K, V, U> {
+    static final class MapReduceKeysTask<K, V, U> extends BulkTask<K, V, U> {
 
         final Function<? super K, ? extends U> transformer;
 
