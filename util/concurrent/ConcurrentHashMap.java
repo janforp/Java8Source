@@ -3217,18 +3217,21 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             }
             //赋值给对象属性 nextTable ，方便协助扩容线程 拿到新表引用
             nextTable = nextTab;
-            //记录迁移数据整体位置的一个标记。index计数是从1开始计算的。也就是数组的0下标对应的trabsferIndex=1
+            //The next table index (plus one) to split while resizing.
+            //记录迁移数据整体位置的一个标记。index计数是从1开始计算的。也就是数组的0下标对应的transferIndex=1
             //目的是方便计算
             //迁移从高位往低位迁移
             transferIndex = n;
         }
 
         //表示新数组的长度
-        int nextn = nextTab.length;
+        int nextNewTabLen = nextTab.length;
         //fwd 节点，当某个桶位数据处理完毕后，将此桶位设置为fwd节点，
         //TODO 其它写线程 或读线程看到后，会有不同逻辑。具体是什么？
         ForwardingNode<K, V> fwd = new ForwardingNode<K, V>(nextTab);
-        //是否继续推进标记
+        //推进标记
+        //每次处理完一个桶位之后都会把该指定设置为true，表示继续下一个桶位，具体是否还有下一个桶位
+        //还得看while(advance)代码块中的逻辑
         boolean advance = true;
         //完成标记
         boolean finishing = false; // to ensure sweep before committing nextTab
@@ -3249,23 +3252,26 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
              * 该while代码块做的事情：
              * 1.给当前线程分配任务区间
              * 2.维护当前线程任务进度（i 表示当前处理的桶位）
-             * 3.维护map对象全局范围内的进度
+             * 3.维护map对象全局范围内的进度(transferIndex)
              */
             while (advance) {
-                //分配任务的开始下标
+                //分配任务的开始下标,为任务开始下标 i 服务
                 int nextIndex,
-                        //分配任务的结束下标
+                        //分配任务的结束下标，为当前线程任务结束 bound 服务
                         nextBound;
 
                 //CASE1:
                 if (
                     //成立：表示当前线程的任务尚未完成，还有相应的区间的桶位要处理，--i 就让当前线程处理下一个 桶位.
                     //不成立：表示当前线程任务已完成 或 者未分配
-                    //i=0,--i => i = -1,bound = 0;
-                    // -1 >= 0 ? false
-                        --i >= bound
+                    //没有分配任务的线程进来的时候，i=0,--i => i = -1,bound = 0;-1 >= 0 ? false，则不会进入该代码块，去下一个分支
+                    //2个情况：
+                    //一：是已经分配了任务，处理完一个桶位，继续循环看看是否有下一个桶位待处理，如果有则进入该代码块，如果没有，则去下一个分支判断
+                    //二：是新来的线程，还没有分配任何任务，直接去下一个分支
+                        --i >= bound//因为任务处理顺序从高往低，所以，如果(i-1)>=bound,说明还没有处理到下界，继续处理下一个桶位的迁移工作
                                 ||
                                 finishing) {
+                    //表示还有下一个桶位需要迁移，继续
                     advance = false;
                 }
                 //CASE2:
@@ -3290,18 +3296,25 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                         nextBound = (//分配任务区间的逻辑
                                 //剩余的(transferIndex)未分配的区间是否超过步长长度？
                                 nextIndex > stride ?
-                                        //如果够，则直接分配一个步长的区间给当前线程
+                                        //如果够，则直接分配一个步长的区间给当前线程,分配成功之后全局变量
+                                        //transferIndex的值也减少了一个步长，往迁移结束（transferIndex<=0）的
+                                        //目标更进一步
                                         nextIndex - stride
                                         :
                                         //不够了，则把 transferIndex 改为0，全部都分配给当前线程
+                                        //transferIndex的值也被修改为0，表示所有桶位都已经分配了
                                         0
                         ))) {
                     //分配成功了
 
+                    //表示分配给当前线程任务的下界限制
                     bound = nextBound;
 
                     //因为 transferIndex 从1开始，数组下标从 0 开始
+                    //nextIndex为该线程迁移开始桶位的下标+1
+                    //所以i就是该线程开始迁移桶位的下标
                     i = nextIndex - 1;
+                    //退出当前while循环
                     advance = false;
                 }
             }
@@ -3310,7 +3323,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             //条件一：i < 0
             //成立：表示当前线程未分配到任务
             //处理：线程任务完成后。线程退出transfer方法的逻辑
-            if (i < 0 || i >= n || i + n >= nextn) {
+            if (i < 0 || i >= n || i + n >= nextNewTabLen) {
                 //保存sizeCtl 的变量
                 int sc;
                 if (finishing) {
