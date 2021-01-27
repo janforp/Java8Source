@@ -575,6 +575,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
     static final int RESERVED = -3; // hash for transient reservations
 
+    //0111 1111 1111 1111 1111 1111 1111 1111
     static final int HASH_BITS = 0x7fffffff; // usable bits of normal node hash
 
     /**
@@ -683,6 +684,15 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * to incorporate impact of the highest bits that would otherwise
      * never be used in index calculations because of table bounds.
      *
+     * XOR:异或门
+     *
+     * 将散列的较高位散布（XOR）降低，也将最高位强制为0。
+     * 由于该表使用2的幂掩码，因此仅在当前掩码上方的位中变化的哈希集将始终发生冲突。
+     * （众所周知的示例是在小表中包含连续整数的Float键集。）因此，我们应用了一种变换，将向下扩展较高位的影响。
+     * 在速度，实用性和位扩展质量之间需要权衡。
+     * 由于许多常见的哈希集已经合理分布（因此无法从扩展中受益），并且由于我们使用树来处理容器中的大量冲突，
+     * 因此我们仅以最便宜的方式对一些移位后的位进行 XOR，以减少系统损失，以及合并最高位的影响，否则由于表范围的限制，这些位将永远不会在索引计算中使用
+     *
      * 1100 0011 1010 0101 0001 1100 0001 1110
      * 0000 0000 0000 0000 1100 0011 1010 0101
      * 1100 0011 1010 0101 1101 1111 1011 1011
@@ -692,9 +702,23 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * 0100 0011 1010 0101 1101 1111 1011 1011
      *
      * 扰动函数，目的是为了让 h 的高16位也参与到计算当中，目的还是为了使之更加散列
+     *
+     * a >>> b:a无符号右移 b 位，各个位向右移指定的位数。右移后左边突出的位用零来填充。移出右边的位被丢弃
+     *
+     * a ^ b:异或运算,两个相应位为“异”（值不同），则该位结果为1，否则为0
+     *
+     * a & b:按位与,两位全为1，结果才为1：
      */
     static final int spread(int h) {
         //&运算：相同为1，不同为0
+        //HASH_BITS = 0x7fffffff =          0111 1111 1111 1111 1111 1111 1111 1111
+
+        //h =                               1100 0011 1010 0101 0001 1100 0001 1110
+        //h >>> 16 =                        0000 0000 0000 0000 1100 0011 1010 0101 右移16位之后，之前的高16位移动到了低16位
+
+        //(h ^ (h >>> 16))=                 1100 0011 1010 0101 1101 1111 1011 1011
+        //HASH_BITS =                       0111 1111 1111 1111 1111 1111 1111 1111
+        //(h ^ (h >>> 16)) & HASH_BITS =    0100 0011 1010 0101 1101 1111 1011 1011
         return (h ^ (h >>> 16)) & HASH_BITS;
     }
 
@@ -1133,6 +1157,8 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * Maps the specified key to the specified value in this table.
      * Neither the key nor the value can be null.
      *
+     * key和value都不能位null
+     *
      * <p>The value can be retrieved by calling the {@code get} method
      * with a key that is equal to the original key.
      *
@@ -1156,7 +1182,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      *
      * 2）如果没有hash冲突就尝试CAS方式插入
      *
-     * 3）如果还在进行扩容操作就先帮助其它线程进一起行扩容
+     * 3）如果还在进行扩容操作就先帮助其它线程一起进行扩容
      *
      * 4）如果存在hash冲突，就加锁来保证put操作的线程安全。
      *
@@ -1165,7 +1191,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * 那么我们就需要在每个桶的位置上分配一把锁，也就要1024把锁，考虑到每次扩容后都还要重新创建所有的锁对象，这显然是不划算的。
      *
      * 添加结点操作完成后会调用addCount方法，在addCount方法中会去判断是否需要扩容操作。
-     * 如果容量超过阀值了，就由这个线程发起扩容操作。如果已经处于扩容状态（sizeCtl < -1），根据剩余迁移的数据和已参加到扩容中的线程数来判断是否需要当前线程来帮助扩容。
+     * 如果容量超过阀值了，就由这个线程发起扩容操作。如果已经处于扩容状态（sizeCtl < -1），根据<p>剩余迁移的数据</p>和<p>已参加到扩容中的线程数</p>来判断是否需要当前线程来帮助扩容。
      *
      * @param onlyIfAbsent 仅在此key不存在的时候才真正的添加
      */
@@ -1182,13 +1208,14 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         int hash = spread(key.hashCode());
 
         //binCount表示当前k-v 封装成node后插入到指定桶位后，在桶位中的所属链表的下标位置
-        //如果为0 表示当前桶位为null，node可以直接放着
+        //如果为0 表示当前桶位为null，node可以直接放到桶位的头节点
         //如果为2 表示当前桶位已经可能是红黑树
 
         //binCount 想要表达的意思
         //添加的key-value 会封装到一个节点中，并且会把它放到某个桶位中
         //如果该桶位之前的数据为null,则 binCount = 0;
         //如果该桶位之前的数据不为null,则说明要插入到某个元素的后面，
+        //TODO
         // 1.则 binCount 表示他在该链表中的下标
         // 2.如果插入的桶位已经树化了，则 binCount = 2,是一个固定值
         int binCount = 0;
@@ -2622,6 +2649,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
     /**
      * A node inserted at head of bins during transfer operations.
+     * 在扩容期间插入的头节点
      */
     static final class ForwardingNode<K, V> extends Node<K, V> {
 
@@ -2632,10 +2660,18 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
         ForwardingNode(Node<K, V>[] tab) {
             //此处固定了 hash 值为 -1
+            //MOVED = -1
             super(MOVED, null, null, null);
             this.nextTable = tab;
         }
 
+        /**
+         * 查询节点
+         *
+         * @param h hashCode
+         * @param k key
+         * @return 节点
+         */
         Node<K, V> find(int h, Object k) {
             //arbitrarily：任意地
             // loop to avoid arbitrarily deep recursion on forwarding nodes
@@ -2652,13 +2688,13 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 int n;
 
                 if (
-                    //条件一：永远不成立
+                    //条件一：永远不成立,不支持key位null
                         k == null
                                 ||
                                 //条件二：永远不成立
                                 tab == null
                                 ||
-                                //条件三：永远不成立
+                                //条件三：永远不成立，扩容呢，怎么可能长度为0
                                 (n = tab.length) == 0
                                 ||
                                 //条件四：在新扩容表中 重新定位 hash 对应的头结点
@@ -3058,6 +3094,10 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
     /**
      * Helps transfer if a resize is in progress.
+     *
+     * @param tab 一般指的是当前对象的 table
+     * @param f 某个桶位的头节点，一般是一个扩容中的节点
+     * @see ForwardingNode
      */
     final Node<K, V>[] helpTransfer(Node<K, V>[] tab, Node<K, V> f) {
         //nextTab 引用的是 fwd.nextTable == map.nextTable 理论上是这样。
@@ -3097,6 +3137,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
                 if (
                     //RESIZE_STAMP_SHIFT = 16
+                    //sc的高16位存储的就是扩容戳
                     //条件一：(sc >>> RESIZE_STAMP_SHIFT) != rs
                     //      true->说明当前线程获取到的扩容唯一标识戳 非 本批次扩容
                     //      false->说明当前线程获取到的扩容唯一标识戳 是 本批次扩容
