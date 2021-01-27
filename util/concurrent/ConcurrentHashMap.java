@@ -1222,28 +1222,23 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
         //tab 引用map对象的table
         //自旋，cpu一直在工作的
+        //每次自旋的时候都重新获取最新的table
         for (Node<K, V>[] tab = table; ; ) {
-            //firstNodeOfBucket 表示桶位的头结点
+            //firstNodeOfBucket 表示命中桶位的头结点
             Node<K, V> firstNodeOfBucket;
-
             //n 表示散列表数组的长度
             int n;
-
             //index 表示key通过寻址计算后，得到的桶位下标
             int index;
-
             //fh 表示桶位头结点的hash值
             int fHash;
-
             //CASE1：成立，表示当前map中的table尚未初始化..
             if (tab == null || (n = tab.length) == 0) {
                 //最终当前线程都会获取到最新的map.table引用。
                 tab = initTable();
             }
-
             //CASE2：index 表示key使用路由寻址算法得到 key 对应 table 数组的下标位置，
             //tabAt 获取指定桶位的头结点 firstNodeOfBucket
-
             //n: 数组的长度，在前一个if中赋值的
             //hash：该 key 的 hash 值
             //index = (n - 1) & hash ： 定位该key在该数组中的下标,下标为 index, 这个 index 在后面的分支中可以直接使用
@@ -1313,6 +1308,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                     if (tabAt(tab, index) == firstNodeOfBucket) {//条件成立，说明咱们 加锁 的对象没有问题，可以进来造了！
 
                         //ForwordingNode的hash值为-1
+                        //红黑树中的节点的hash值为-2
                         //链表结点的hash值 >= 0
                         //fHash：头节点hash值
                         if (fHash >= 0) {//条件成立，说明当前桶位就是普通链表桶位。
@@ -1408,8 +1404,10 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                     }
                 }
 
-                //binCount
-                //==0,什么添加到了一个槽位为null的节点，当前槽位肯定不需要树化
+                /**
+                 * 如果 binCount == 0 说明添加失败或者添加到了一个空桶位中
+                 * 这种情况就不需要判断是否需要树化了
+                 */
                 if (binCount != 0) {
                     //如果binCount>=8 表示处理的桶位一定是链表
                     if (binCount >= TREEIFY_THRESHOLD) {
@@ -2810,20 +2808,16 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         Node<K, V>[] tab;
         //sc sizeCtl的临时值
         int tempSizeCtl;
-
         //自旋 条件：map.table 尚未初始化
         while ((tab = table) == null || tab.length == 0) {
-
             //tempSizeCtl 赋值为 sizeCtl
             if ((tempSizeCtl = sizeCtl) < 0) {
                 //大概率就是-1，表示其它线程正在进行创建table的过程，
                 //当前线程没有竞争到初始化table的锁。
-
                 //该分支总结：因为该函数为初始化接口，肯定不会存在扩容的场景
                 //又因为 sizeCtl 默认为0，所以如果此时sizeCtl < 0 的时候
                 //肯定为 -1，这就说明有其他线程已经获取到锁了
                 //则进入该分支的线程就让出cpu
-
                 //放弃初始化数组的竞争；自旋等待
                 /**
                  * @see ConcurrentHashMap#sizeCtl
@@ -2831,7 +2825,6 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 //TODO yield() 之后 finally 中的代码什么时候执行？？
                 Thread.yield(); // lost initialization race; just spin
             }
-
             //进入下面的分支，就说明 tempSizeCtl 肯定不是 -1;
             //1.sizeCtl = 0，表示创建table数组时 使用DEFAULT_CAPACITY为大小
             //2.如果table未初始化，表示初始化大小
@@ -2845,7 +2838,6 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                     -1)) {//锁上：设置为-1，如果设置成功，则该线程负责创建数组
 
                 //说明竞争到了扩容锁
-
                 try {
                     //这里为什么又要判断呢？ 防止其它线程已经初始化完毕了，
                     //然后当前线程再次初始化..导致丢失数据。
@@ -2858,7 +2850,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
                         //sc大于0 创建table时 使用 sc为指定大小，否则使用 16 默认值.
                         int n =
-                                //此时 this 对象的 sizeCtl 已经设置成了 -1，tempSizeCtl 为 sizeCtl 之前的值
+                                //此时 this 对象的 sizeCtl 已经设置成了 -1，tempSizeCtl 为 sizeCtl 进入该方法之前的值
                                 (tempSizeCtl > 0) ?
                                         tempSizeCtl //如果 sizeCtl 的值大于零，并且目前数组是没有初始化的，所以数组初始化大小就是 tempSizeCtl
                                         :
@@ -2869,16 +2861,13 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                         Node<K, V>[] nt = (Node<K, V>[]) new Node<?, ?>[n];
                         //最终赋值给 map.table
                         table = tab = nt;
-
                         //n >>> 2:n无符号右移两位
-
                         //右移一位相当于 除以2
                         //右移两位相当于除以4
                         //n >>> 2  => 等于 1/4 n     n - (1/4)n = 3/4 n => 0.75 * n
                         //sc 0.75 n 表示下一次扩容时的触发条件。
 
                         //相当于 0.75n
-
                         //初始化完成之后， sizeCtl 如果 >0 ,则表示数组下次扩容的阈值
                         //tempSizeCtl = n - (n/4)
                         //也就是 下次扩容的阈值为 0.75n
@@ -2968,7 +2957,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                                     //更新值
                                     valueOfHitCell + addNum))) {
 
-                //类似：LongAdder.longAccumulate
+                //类似：LongAdder.longAccumulate,里面会进行cells数组的创建或者cell的创建
                 fullAddCount(addNum, uncontended);
                 //考虑到fullAddCount里面的事情比较累，就让当前线程 不参与到 扩容相关的逻辑了，直接返回到调用点。
                 //也就是当前线程已经做了很多脏活累活了，可怜该线程就直接返回了
@@ -2981,7 +2970,6 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             // =0,头节点
             // <0:remove操作进来的
             if (check <= 1) {
-                //TODO ？？？？？？
                 return;
             }
 
