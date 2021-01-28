@@ -1473,7 +1473,6 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         //自旋
         for (Node<K, V>[] tab = table; ; ) {
             //f表示桶位头结点
-
             Node<K, V> f;
             //n表示当前table数组长度
             int n,
@@ -1483,10 +1482,15 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                     fh;
 
             //CASE1：
-            //条件一：tab == null  true->表示当前map.table尚未初始化..  false->已经初始化
-            //条件二：(n = tab.length) == 0  true->表示当前map.table尚未初始化..  false->已经初始化
-            //条件三：(f = tabAt(tab, i = (n - 1) & hash)) == null true -> 表示命中桶位中为null，直接break， 会返回null
-            if (tab == null || (n = tab.length) == 0 || (f = tabAt(tab, i = (n - 1) & hash)) == null) {
+            if (
+                //条件一：tab == null  true->表示当前map.table尚未初始化..  false->已经初始化
+                    tab == null
+                            ||
+                            //条件二：(n = tab.length) == 0  true->表示当前map.table尚未初始化..  false->已经初始化
+                            (n = tab.length) == 0
+                            ||
+                            //条件三：(f = tabAt(tab, i = (n - 1) & hash)) == null true -> 表示命中桶位中为null，直接break， 会返回null
+                            (f = tabAt(tab, i = (n - 1) & hash)) == null) {
                 //数组没有初始化或者对应槽位的头节点为null，说明当前remove的key根本不存在
                 break;
             }
@@ -1524,35 +1528,31 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                                 //条件一：e.hash == hash true->说明当前节点的hash与查找节点hash一致
                                 //条件二：((ek = e.key) == key || (ek != null && key.equals(ek)))
                                 //if 条件成立，说明key 与查询的key完全一致。
-                                if (e.hash == hash &&
-                                        ((ek = e.key) == key ||
-                                                (ek != null && key.equals(ek)))) {
+                                if (e.hash == hash && ((ek = e.key) == key || (ek != null && key.equals(ek)))) {
                                     //当前节点的value
                                     V ev = e.val;
 
                                     //条件一：cv == null true->替换的值为null 那么就是一个删除操作
-                                    //条件二：cv == ev || (ev != null && cv.equals(ev))  那么是一个替换操作
-                                    if (cv == null || cv == ev ||
-                                            (ev != null && cv.equals(ev))) {
+                                    if (cv == null
+                                            ||
+                                            //条件二：cv == ev || (ev != null && cv.equals(ev))  那么是一个替换操作
+                                            cv == ev || (ev != null && cv.equals(ev))) {
                                         //删除 或者 替换
 
                                         //将当前节点的值 赋值给 oldVal 后续返回会用到
                                         oldVal = ev;
 
                                         //条件成立：说明当前是一个替换操作
-                                        if (value != null)
-                                        //直接替换
-                                        {
+                                        if (value != null) {
+                                            //直接替换
                                             e.val = value;
                                         }
                                         //条件成立：说明当前节点非头结点
-                                        else if (pred != null)
-                                        //当前节点的上一个节点，指向当前节点的下一个节点。
-                                        {
+                                        else if (pred != null) {
+                                            //当前节点的上一个节点，指向当前节点的下一个节点。达到删除节点效果
                                             pred.next = e.next;
-                                        } else
-                                        //说明当前节点即为 头结点，只需要将 桶位设置为头结点的下一个节点。
-                                        {
+                                        } else {
+                                            //说明当前节点即为 头结点，只需要将 桶位设置为头结点的下一个节点。
                                             setTabAt(tab, i, e.next);
                                         }
                                     }
@@ -1572,19 +1572,25 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                             //转换为实际类型 TreeBin t
                             TreeBin<K, V> t = (TreeBin<K, V>) f;
                             //r 表示 红黑树 根节点
-                            //p 表示 红黑树中查找到对应key 一致的node
-                            TreeNode<K, V> r, p;
-
-                            //条件一：(r = t.root) != null 理论上是成立
-                            //条件二：TreeNode.findTreeNode 以当前节点为入口，向下查找key（包括本身节点）
-                            //      true->说明查找到相应key 对应的node节点。会赋值给p
-                            if ((r = t.root) != null && (p = r.findTreeNode(hash, key, null)) != null) {
+                            TreeNode<K, V> r,
+                                    //p 表示 红黑树中查找到对应key 一致的node
+                                    p;
+                            if (
+                                //条件一：(r = t.root) != null 理论上是成立
+                                    (r = t.root) != null
+                                            &&
+                                            //条件二：TreeNode.findTreeNode 以当前节点为入口，向下查找key（包括本身节点）
+                                            //      true->说明查找到相应key 对应的node节点。会赋值给p
+                                            (p = r.findTreeNode(hash, key, null)) != null) {
                                 //保存p.val 到pv
                                 V pv = p.val;
 
-                                //条件一：cv == null  成立：不必对value，就做替换或者删除操作
-                                //条件二：cv == pv ||(pv != null && cv.equals(pv)) 成立：说明“对比值”与当前p节点的值 一致
-                                if (cv == null || cv == pv || (pv != null && cv.equals(pv))) {
+                                if (
+                                    //条件一：cv == null  成立：不必对value，就做替换或者删除操作
+                                        cv == null
+                                                ||
+                                                //条件二：cv == pv ||(pv != null && cv.equals(pv)) 成立：说明“对比值”与当前p节点的值 一致
+                                                cv == pv || (pv != null && cv.equals(pv))) {
                                     //替换或者删除操作
                                     oldVal = pv;
 
@@ -1592,7 +1598,6 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                                     if (value != null) {
                                         p.val = value;
                                     }
-
                                     //删除操作
                                     else if (t.removeTreeNode(p)) {
                                         //这里没做判断，直接搞了...很疑惑
