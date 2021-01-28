@@ -2674,7 +2674,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         /**
          * 查询节点
          *
-         * @param h hashCode
+         * @param h hashCode = spread(key.hashCode())
          * @param k key
          * @return 节点
          */
@@ -2694,13 +2694,14 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 int n;
 
                 if (
-                    //条件一：永远不成立,不支持key位null
+                    //条件一：永远不成立,不支持key为null
                         k == null
                                 ||
                                 //条件二：永远不成立
                                 tab == null
                                 ||
                                 //条件三：永远不成立，扩容呢，怎么可能长度为0
+                                //TODO 感觉是有可能成立的，如果在扩容的第一个元素就是null，则此时nextTable还没有迁移完成，完全有可能的
                                 (n = tab.length) == 0
                                 ||
                                 //条件四：在新扩容表中 重新定位 hash 对应的头结点
@@ -2731,10 +2732,10 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                     }
 
                     //eh<0
-
+                    //FWD或者TreeBIn
                     if (eh < 0) {
                         if (e instanceof ForwardingNode) {
-                            //2.FWD类型（新扩容的表，在并发很大的情况下，可能在此方法 再次拿到FWD类型..）
+                            //2.FWD类型（新扩容的表，TODO 在并发很大的情况下，可能在此方法 再次拿到FWD类型..）
                             tab = ((ForwardingNode<K, V>) e).nextTable;
                             continue outer;
                         } else {
