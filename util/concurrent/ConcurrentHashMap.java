@@ -3434,6 +3434,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             //CASE4:
             //前置条件：当前桶位有数据，而且node节点 不是 fwd节点，说明这些数据需要迁移。
             else {
+                //TODO
                 //sync 加锁当前桶位的头结点
                 synchronized (f) {
                     //double check
