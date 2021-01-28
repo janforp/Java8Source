@@ -1061,14 +1061,16 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      */
     public V get(Object key) {
         //tab 引用map.table
-        //e 当前元素
-        //p 目标节点
-        //n table数组长度
-        //eh 当前元素hash
-        //ek 当前元素key
         Node<K, V>[] tab;
-        Node<K, V> e, p;
-        int n, eh;
+        //e 当前元素
+        Node<K, V> e,
+                //p 目标节点
+                p;
+        //n table数组长度
+        int n,
+                //eh 当前元素hash
+                eh;
+        //ek 当前元素key
         K ek;
         //扰动运算后得到 更散列的hash值
         int h = spread(key.hashCode());
@@ -1076,13 +1078,16 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         //条件一：(tab = table) != null
         //true->表示已经put过数据，并且map内部的table也已经初始化完毕
         //false->表示创建完map后，并没有put过数据，map内部的table是延迟初始化的，只有第一次写数据时会触发创建逻辑。
-        //条件二：(n = tab.length) > 0 true->表示table已经初始化
-        //条件三：(e = tabAt(tab, (n - 1) & h)) != null
-        //true->当前key寻址的桶位 有值
-        //false->当前key寻址的桶位中是null，是null直接返回null
-        if ((tab = table) != null && (n = tab.length) > 0 &&
+        if ((tab = table) != null
+                &&
+                //条件二：(n = tab.length) > 0 true->表示table已经初始化
+                (n = tab.length) > 0
+                &&
+                //条件三：(e = tabAt(tab, (n - 1) & h)) != null
+                //true->当前key寻址的桶位 有值
+                //false->当前key寻址的桶位中是null，是null直接返回null
                 (e = tabAt(tab, (n - 1) & h)) != null) {
-            //前置条件：当前桶位有数据
+            //前置条件：当前key命中的桶位有数据
 
             //对比头结点hash与查询key的hash是否一致
             //条件成立：说明头结点与查询Key的hash值 完全一致
@@ -1103,12 +1108,10 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
             //当前桶位已经形成链表的这种情况
             while ((e = e.next) != null) {
-                if (e.hash == h &&
-                        ((ek = e.key) == key || (ek != null && key.equals(ek)))) {
+                if (e.hash == h && ((ek = e.key) == key || (ek != null && key.equals(ek)))) {
                     return e.val;
                 }
             }
-
         }
         return null;
     }
