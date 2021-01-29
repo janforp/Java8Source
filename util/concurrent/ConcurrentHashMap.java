@@ -1466,6 +1466,12 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * Implementation for the four public remove/replace methods:
      * Replaces node value with v, conditional upon match of cv if
      * non-null.  If resulting value is null, delete.
+     *
+     * 如果 value = null.则删除
+     *
+     * @param key key
+     * @param value 替换陈什么
+     * @param cv comparedValue 如果cv != null
      */
     final V replaceNode(Object key, V value, Object cv) {
         //计算key经过扰动运算后的hash
@@ -1532,14 +1538,15 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                                     //当前节点的value
                                     V ev = e.val;
 
-                                    //条件一：cv == null true->替换的值为null 那么就是一个删除操作
-                                    if (cv == null
-                                            ||
-                                            //条件二：cv == ev || (ev != null && cv.equals(ev))  那么是一个替换操作
-                                            cv == ev || (ev != null && cv.equals(ev))) {
+                                    if (
+                                        //条件一：cv == null true->替换的值为null 那么就是一个删除操作
+                                            cv == null
+                                                    ||
+                                                    //条件二：cv == ev || (ev != null && cv.equals(ev))  那么是一个替换操作
+                                                    cv == ev || (ev != null && cv.equals(ev))) {
                                         //删除 或者 替换
 
-                                        //将当前节点的值 赋值给 oldVal 后续返回会用到
+                                        //将当前节点的值 赋值给 oldVal 后续返回会用到，这个不重要
                                         oldVal = ev;
 
                                         //条件成立：说明当前是一个替换操作
@@ -1547,7 +1554,8 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                                             //直接替换
                                             e.val = value;
                                         }
-                                        //条件成立：说明当前节点非头结点
+                                        //前提：value == null
+                                        //条件成立：说明当前节点非头结点，则在链表中，使用单向链表删除方法即可
                                         else if (pred != null) {
                                             //当前节点的上一个节点，指向当前节点的下一个节点。达到删除节点效果
                                             pred.next = e.next;
@@ -1559,6 +1567,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                                     break;
                                 }
                                 pred = e;
+                                //继续查询链表的下一个节点
                                 if ((e = e.next) == null) {
                                     break;
                                 }
@@ -1581,6 +1590,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                                             &&
                                             //条件二：TreeNode.findTreeNode 以当前节点为入口，向下查找key（包括本身节点）
                                             //      true->说明查找到相应key 对应的node节点。会赋值给p
+                                            //从根节点开始搜索
                                             (p = r.findTreeNode(hash, key, null)) != null) {
                                 //保存p.val 到pv
                                 V pv = p.val;
@@ -3717,9 +3727,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
                         TreeNode<K, V> hd = null, tl = null;
                         for (Node<K, V> e = b; e != null; e = e.next) {
-                            TreeNode<K, V> p =
-                                    new TreeNode<K, V>(e.hash, e.key, e.val,
-                                            null, null);
+                            TreeNode<K, V> p = new TreeNode<>(e.hash, e.key, e.val, null, null);
                             if ((p.prev = tl) == null) {
                                 hd = p;
                             } else {
@@ -3838,8 +3846,12 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
         /**
          * 1.写锁状态 写是独占状态，以散列表来看，真正进入到TreeBin中的写线程 同一时刻 只有一个线程。 1
-         * 2.读锁状态 读锁是共享，同一时刻可以有多个线程 同时进入到 TreeBin对象中获取数据。 每一个线程 都会给 lockStat + 4
-         * 3.等待者状态（写线程在等待），当TreeBin中有读线程目前正在读取数据时，写线程无法修改数据，那么就将lockState的最低2位 设置为 0b 10
+         * 2.读锁状态 读锁是共享，同一时刻可以有多个线程 同时进入到 TreeBin对象中获取数据。
+         * 每一个线程 都会给 lockStat + 4
+         * 3.等待者状态（写线程在等待），当TreeBin中有读线程目前正在读取数据时，
+         * 写线程无法修改数据，那么就将lockState的最低2位 设置为 0b 10
+         *
+         * 二进制的 10 表示：0b 10, 等于十进制的 2
          */
         volatile int lockState;
 
@@ -3859,17 +3871,15 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
          */
         static int tieBreakOrder(Object a, Object b) {
             int d;
-            if (a == null || b == null ||
-                    (d = a.getClass().getName().
-                            compareTo(b.getClass().getName())) == 0) {
-                d = (System.identityHashCode(a) <= System.identityHashCode(b) ?
-                        -1 : 1);
+            if (a == null || b == null || (d = a.getClass().getName().compareTo(b.getClass().getName())) == 0) {
+                d = (System.identityHashCode(a) <= System.identityHashCode(b) ? -1 : 1);
             }
             return d;
         }
 
         /**
          * Creates bin with initial set of nodes headed by b.
+         * 创建带有初始以b开头的节点集的bin。
          */
         TreeBin(TreeNode<K, V> b) {
             //设置节点hash为-2 表示此节点是TreeBin节点
@@ -3879,11 +3889,18 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             //r 红黑树的根节点引用
             TreeNode<K, V> r = null;
 
-            //x表示遍历的当前节点
-            for (TreeNode<K, V> x = b, next; x != null; x = next) {
+            for (
+                //x表示遍历的当前节点
+                    TreeNode<K, V> x = b,
+                    //next = (TreeNode<K, V>) x.next;
+                    next;
+                    x != null;
+                    x = next) {
+
                 next = (TreeNode<K, V>) x.next;
                 //强制设置当前插入节点的左右子树为null
                 x.left = x.right = null;
+
                 //条件成立：说明当前红黑树 是一个空树，那么设置插入元素 为根节点
                 if (r == null) {
                     //根节点的父节点 一定为 null
@@ -3893,7 +3910,9 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                     //让r引用x所指向的对象。
                     r = x;
                 } else {
-                    //非第一次循环，都会来带else分支，此时红黑树已经有数据了
+                    //非第一次循环，都会来到else分支，此时红黑树已经有数据了
+
+                    //x为当前要插入到红黑树的节点
 
                     //k 表示 插入节点的key
                     K k = x.key;
@@ -3904,41 +3923,66 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                     //p 表示 为查找插入节点的父节点的一个临时节点
                     TreeNode<K, V> p = r;
 
+                    //下面的for就是查询插入位置的过程
+                    //沿着 p 节点往下搜索即可
                     for (; ; ) {
-                        //dir (-1, 1)
+                        //dir 只能是2个情况：-1或者 1
                         //-1 表示插入节点的hash值大于 当前p节点的hash
                         //1 表示插入节点的hash值 小于 当前p节点的hash
+                        //TODO 等于的时候呢？
+                        int dir;
+
                         //ph p表示 为查找插入节点的父节点的一个临时节点的hash
-                        int dir, ph;
+                        int ph;
+
                         //临时节点 key
                         K pk = p.key;
 
+                        /********* 计算 dir start *********/
                         //插入节点的hash值 小于 当前节点
-                        if ((ph = p.hash) > h)
-                        //插入节点可能需要插入到当前节点的左子节点 或者 继续在左子树上查找
-                        {
+                        if ((ph = p.hash) > h) {
+                            //插入节点可能需要插入到当前节点的左子节点 或者 继续在左子树上查找
                             dir = -1;
                         }
+
                         //插入节点的hash值 大于 当前节点
-                        else if (ph < h)
-                        //插入节点可能需要插入到当前节点的右子节点 或者 继续在右子树上查找
-                        {
+                        else if (ph < h) {
+                            //插入节点可能需要插入到当前节点的右子节点 或者 继续在右子树上查找
                             dir = 1;
                         }
 
+                        //当前要插入节点的hash跟当前遍历到的节点的hash相同
                         //如果执行到 CASE3，说明当前插入节点的hash 与 当前节点的hash一致，会在case3 做出最终排序。最终
-                        //拿到的dir 一定不是0，（-1， 1）
-                        else if ((kc == null &&
-                                (kc = comparableClassFor(k)) == null) ||
-                                (dir = compareComparables(kc, k, pk)) == 0) {
+                        //拿到的dir 一定不是0，而是（-1， 1）中的一个
+                        else if (
+                            //如果k拿到的kc为null,则去决战方法 tieBreakOrder
+                                (kc == null && (kc = comparableClassFor(k)) == null)
+                                        ||
+                                        //如果kc不为null则继续在此条件执行,如果对比的值还是一样，则去决战方法
+                                        (dir = compareComparables(kc, k, pk)) == 0) {
+
+                            //决战方法，该方法肯定能分出高低！！
                             dir = tieBreakOrder(k, pk);
                         }
+
+                        /********* 计算 dir end *********/
 
                         //xp 想要表示的是 插入节点的 父节点
                         TreeNode<K, V> xp = p;
                         //条件成立：说明当前p节点 即为插入节点的父节点
                         //条件不成立：说明p节点 底下还有层次，需要将p指向 p的左子节点 或者 右子节点，表示继续向下搜索。
-                        if ((p = (dir <= 0) ? p.left : p.right) == null) {
+                        if (
+                            //通过 dir 来给 p 赋值
+                                (p = (dir <= 0)
+                                        ?
+                                        //左孩子
+                                        p.left
+                                        :
+                                        //有孩子
+                                        p.right)
+                                        //如果 p 为 null,如果不为 null 则到p的子节点中继续循环搜索
+                                        == null
+                        ) {
                             //设置插入节点的父节点 为 当前节点
                             x.parent = xp;
                             //小于P节点，需要插入到P节点的左子节点
@@ -3958,7 +4002,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                     }
                 }
             }
-            //将r 赋值给 TreeBin对象的 root引用。
+            //将平衡之后的红黑树的跟节点 赋值给 TreeBin对象的 root引用。
             this.root = r;
             assert checkInvariants(root);
         }
@@ -4021,49 +4065,75 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
          * Returns matching node or null if none. Tries to search
          * using tree comparisons from root, but continues linear
          * search when lock not available.
+         *
+         * 返回匹配的节点，如果没有则返回null。尝试从根目录使用树比较进行搜索，但是在锁不可用时继续线性搜索。
          */
+        @SuppressWarnings("all")
         final Node<K, V> find(int h, Object k) {
             if (k != null) {
 
                 //e 表示循环迭代的当前节点   迭代的是first引用的链表
                 for (Node<K, V> e = first; e != null; ) {
+
                     //s 保存的是lock临时状态
-                    //ek 链表当前节点 的key
+                    //s = lockState
                     int s;
+
+                    //ek 链表当前节点 的key
+                    //ek = e.key
                     K ek;
 
-                    //(WAITER|WRITER) => 0010 | 0001 => 0011
-                    //lockState & 0011 != 0 条件成立：说明当前TreeBin 有等待者线程 或者 目前有写操作线程正在加锁
-                    if (((s = lockState) & (WAITER | WRITER)) != 0) {
-                        if (e.hash == h &&
-                                ((ek = e.key) == k || (ek != null && k.equals(ek)))) {
+                    if ((
+                            (s = lockState) &
+                                    //(WAITER|WRITER) => 0010 | 0001 => 0011
+                                    (WAITER | WRITER)
+                            //TODO lockState & 0011 != 0 ,说明当前TreeBin 有等待者线程 或者 目前有写操作线程正在加锁？？？？？？？
+                    ) != 0) {
+                        //表示当前红黑树需要阻塞，所以，为了避免阻塞，使用链表查询
+                        if (e.hash == h && ((ek = e.key) == k || (ek != null && k.equals(ek)))) {
+                            //如果使用链表查询到了，则返回，这样避免来阻塞
                             return e;
                         }
+                        //如果当前节点的key不是要查询的，则查询链表的下一个节点
                         e = e.next;
                     }
 
-                    //前置条件：当前TreeBin中 等待者线程 或者 写线程 都没有
-                    //条件成立：说明添加读锁成功
-                    else if (U.compareAndSwapInt(this, LOCKSTATE, s,
-                            s + READER)) {
-                        TreeNode<K, V> r, p;
+                    //前置条件：当前TreeBin中 没有等待者线程 并且 没有写线程，也就是没有独占锁!!!
+                    else if (
+                        //如果cas成功：说明添加读锁成功
+                            U.compareAndSwapInt(this, LOCKSTATE, s, s + READER)) {
+                        //跟节点
+                        TreeNode<K, V> r,
+                                //查询结果节点
+                                p;
                         try {
                             //查询操作
-                            p = ((r = root) == null ? null :
-                                    r.findTreeNode(h, k, null));
+                            p = (
+                                    //r赋值跟节点，r是否为null?
+                                    (r = root) == null ?
+                                            //如果跟节点为null,则当前查询节点为null
+                                            null
+                                            :
+                                            //如果跟节点不为null，则去该红黑树中查询到目标节点，当然也可能查不到
+                                            r.findTreeNode(h, k, null)
+                            );
                         } finally {
-                            //w 表示等待者线程
+                            //waiter等待线程
                             Thread w;
-                            //U.getAndAddInt(this, LOCKSTATE, -READER) == (READER|WAITER)
-                            //1.当前线程查询红黑树结束，释放当前线程的读锁 就是让 lockstate 值 - 4
-                            //(READER|WAITER) = 0110 => 表示当前只有一个线程在读，且“有一个线程在等待”
-                            //当前读线程为 TreeBin中的最后一个读线程。
 
-                            //2.(w = waiter) != null 说明有一个写线程在等待读操作全部结束。
-                            if (U.getAndAddInt(this, LOCKSTATE, -READER) ==
-                                    (READER | WAITER) && (w = waiter) != null)
-                            //使用unpark 让 写线程 恢复运行状态。
-                            {
+                            if (
+                                //1.当前线程查询红黑树结束，释放当前线程的读锁 就是让 lockstate 值 - 4，
+                                //并且返回 减去4之前的值
+                                    U.getAndAddInt(this, LOCKSTATE, -READER)
+                                            //lockState 的值减去4之前等于 (READER | WAITER)，说明当前读线程为 TreeBin中的最后一个读线程。
+                                            //(READER|WAITER) = 0110 => 表示当前只有一个线程在读，且“有一个线程在等待”
+                                            == (READER | WAITER)
+                                            &&
+                                            //2.(w = waiter) != null 说明有一个写线程在等待读操作全部结束。
+                                            (w = waiter) != null
+                            ) {
+                                //使用unpark 让 写线程 恢复运行状态。
+                                //注意：是最后一个读线程完成之后去做这件事情！！！！！！
                                 LockSupport.unpark(w);
                             }
                         }
@@ -4314,8 +4384,16 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
             return root;
         }
 
-        static <K, V> TreeNode<K, V> balanceInsertion(TreeNode<K, V> root,
-                TreeNode<K, V> x) {
+        /**
+         * 插入节点之后的平衡方法
+         *
+         * @param root 跟节点
+         * @param x 被插入节点
+         * @param <K> 泛型
+         * @param <V> 泛型
+         * @return 平衡之后的红黑树
+         */
+        static <K, V> TreeNode<K, V> balanceInsertion(TreeNode<K, V> root, TreeNode<K, V> x) {
             x.red = true;
             for (TreeNode<K, V> xp, xpp, xppl, xppr; ; ) {
                 if ((xp = x.parent) == null) {
