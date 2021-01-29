@@ -3929,7 +3929,6 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                         //dir 只能是2个情况：-1或者 1
                         //-1 表示插入节点的hash值大于 当前p节点的hash
                         //1 表示插入节点的hash值 小于 当前p节点的hash
-                        //TODO 等于的时候呢？
                         int dir;
 
                         //ph p表示 为查找插入节点的父节点的一个临时节点的hash
@@ -4011,8 +4010,9 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
          * Acquires write lock for tree restructuring.
          */
         private final void lockRoot() {
-            //条件成立：说明lockState 并不是 0，说明此时有其它读线程在treeBin红黑树中读取数据。
+            //条件成立：说明lockState 的期望值不正确，并不是 0，说明此时有其它读线程在treeBin红黑树中读取数据。
             if (!U.compareAndSwapInt(this, LOCKSTATE, 0, WRITER)) {
+                //加锁失败，说明有竞争
                 contendedLock(); // offload to separate method
             }
         }
@@ -4035,18 +4035,26 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 //~WAITER = 11111....01
                 //条件成立：说明目前TreeBin中没有读线程在访问 红黑树
                 //条件不成立：有线程在访问红黑树
-                if (((s = lockState) & ~WAITER) == 0) {
+                if (
+                    //1.给s 赋值
+                        ((s = lockState)
+                                & // s 根 ~WAITER 进行与运算
+                                //~WAITER 取反之后： 11111....01，前面都是1，最后是 01
+                                ~WAITER)
+                                == 0// s 根 ~WAITER 进行与运算 的结果 是否等于 0,如果等于0，则说明目前TreeBin中没有读线程在访问红黑树
+                ) {
                     //条件成立：说明写线程 抢占锁成功
                     if (U.compareAndSwapInt(this, LOCKSTATE, s, WRITER)) {
-                        if (waiting)
-                        //设置TreeBin对象waiter 引用为null
-                        {
+                        if (waiting) {
+                            //设置TreeBin对象waiter 引用为null
                             waiter = null;
                         }
                         return;
                     }
                 }
-                //lock & 0000...10 = 0, 条件成立：说明lock 中 waiter 标志位 为0，此时当前线程可以设置为1了，然后将当前线程挂起。
+
+                //前提：当前有线程在访问红黑树
+                //lockState & 0000...10 = 0, 条件成立：说明 lockState 中 waiter 标志位 为0，此时当前线程可以设置为1了，然后将当前线程挂起。
                 else if ((s & WAITER) == 0) {
                     if (U.compareAndSwapInt(this, LOCKSTATE, s, s | WAITER)) {
                         waiting = true;
@@ -4147,11 +4155,17 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         /**
          * Finds or adds a node.
          *
+         * @param h hash
+         * @param k key
+         * @param v value
          * @return null if added
          */
+        @SuppressWarnings("all")
         final TreeNode<K, V> putTreeVal(int h, K k, V v) {
             Class<?> kc = null;
             boolean searched = false;
+
+            //p从根节点开始
             for (TreeNode<K, V> p = root; ; ) {
                 int dir, ph;
                 K pk;
@@ -4180,19 +4194,24 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                     dir = tieBreakOrder(k, pk);
                 }
 
+                //上面的逻辑与前面类似，就是决定 dir 的值
+
                 TreeNode<K, V> xp = p;
                 if ((p = (dir <= 0) ? p.left : p.right) == null) {
                     //当前循环节点xp 即为 x 节点的爸爸
 
                     //x 表示插入节点
-                    //f 老的头结点
-                    TreeNode<K, V> x, f = first;
+                    //x = new TreeNode<K, V>(h, k, v, f, xp);
+                    TreeNode<K, V> x,
+                            //f 老的  头结点
+                            f = first;
+
+                    //新 头节点
                     first = x = new TreeNode<K, V>(h, k, v, f, xp);
 
                     //条件成立：说明链表有数据
-                    if (f != null)
-                    //设置老的头结点的前置引用为 当前的头结点。
-                    {
+                    if (f != null) {//老的头节点不为空
+                        //设置老的头结点的前置引用为 当前的头结点。
                         f.prev = x;
                     }
 
@@ -4207,8 +4226,9 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                     } else {
                         //表示 当前新插入节点后，新插入节点 与 父节点 形成 “红红相连”
                         lockRoot();
+                        //调整红黑树结构的时候是要加锁的！！！！！
                         try {
-                            //平衡红黑树，使其再次符合规范。
+                            //平衡红黑树，使其再次符合红黑树规则。
                             root = balanceInsertion(root, x);
                         } finally {
                             unlockRoot();
