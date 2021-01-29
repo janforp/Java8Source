@@ -229,6 +229,7 @@ import java.util.stream.Stream;
  * @author Doug Lea
  * @since 1.5
  */
+@SuppressWarnings("all")
 public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V>, Serializable {
 
     private static final long serialVersionUID = 7249069246763182397L;
@@ -624,11 +625,17 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
     /**
      * The maximum number of threads that can help resize.
      * Must fit in 32 - RESIZE_STAMP_BITS bits.
+     *
+     * 65535
+     *
+     * 最大线程
      */
     private static final int MAX_RESIZERS = (1 << (32 - RESIZE_STAMP_BITS)) - 1;
 
     /**
      * The bit shift for recording size stamp in sizeCtl.
+     *
+     * 16
      */
     private static final int RESIZE_STAMP_SHIFT = 32 - RESIZE_STAMP_BITS;
 
@@ -795,6 +802,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
     /**
      * Returns a power of two table size for the given desired capacity.
      * See Hackers Delight, sec 3.2
+     *
      * 返回>=c的最小的2的次方数
      * c=28
      * n=27 => 0b 11011
@@ -825,22 +833,28 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      */
     static Class<?> comparableClassFor(Object x) {
         if (x instanceof Comparable) {
+            //c = x.getClass()
             Class<?> c;
-            Type[] ts, as;
+
+            //ts = c.getGenericInterfaces()
+            Type[] ts,
+                    //as = p.getActualTypeArguments()
+                    as;
+            //t = ts[i]
             Type t;
             ParameterizedType p;
-            if ((c = x.getClass()) == String.class) // bypass checks
-            {
+            if ((c = x.getClass()) == String.class) {
+                // bypass checks
                 return c;
             }
             if ((ts = c.getGenericInterfaces()) != null) {
                 for (int i = 0; i < ts.length; ++i) {
-                    if (((t = ts[i]) instanceof ParameterizedType) &&
-                            ((p = (ParameterizedType) t).getRawType() ==
-                                    Comparable.class) &&
-                            (as = p.getActualTypeArguments()) != null &&
-                            as.length == 1 && as[0] == c) // type arg is c
-                    {
+                    if (((t = ts[i]) instanceof ParameterizedType)
+                            && ((p = (ParameterizedType) t).getRawType() == Comparable.class)
+                            && (as = p.getActualTypeArguments()) != null
+                            && as.length == 1
+                            && as[0] == c) {
+                        // type arg is c
                         return c;
                     }
                 }
@@ -855,8 +869,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      */
     @SuppressWarnings({ "rawtypes", "unchecked" }) // for cast to Comparable
     static int compareComparables(Class<?> kc, Object k, Object x) {
-        return (x == null || x.getClass() != kc ? 0 :
-                ((Comparable) k).compareTo(x));
+        return (x == null || x.getClass() != kc ? 0 : ((Comparable) k).compareTo(x));
     }
 
     /* ---------------- Table element access -------------- */
@@ -6320,8 +6333,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * entries.  This class cannot be directly instantiated. See
      * {@link #entrySet()}.
      */
-    static final class EntrySetView<K, V> extends CollectionView<K, V, Entry<K, V>>
-            implements Set<Entry<K, V>>, Serializable {
+    static final class EntrySetView<K, V> extends CollectionView<K, V, Entry<K, V>> implements Set<Entry<K, V>>, Serializable {
 
         private static final long serialVersionUID = 2249069246763182397L;
 
