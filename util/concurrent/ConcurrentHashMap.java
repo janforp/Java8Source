@@ -462,6 +462,73 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * methods (with a few factorings of multiple public methods into
      * internal ones), then sizing methods, trees, traversers, and
      * bulk operations.
+     *
+     * 概述：此哈希表的主要设计目标是保持并发可读性（通常是get（）方法，还包括迭代器和相关方法），
+     * 同时最大程度地减少更新争用。次要目标是使空间消耗保持与java.util.HashMap相同或更好，并支持许多线程对空表的高初始插入率。
+     * 该映射通常充当装箱（存储桶）的哈希表。每个键值映射都保存在一个节点中。大多数节点是基本Node类的实例，具有哈希，键，值和下一个字段。
+     * 但是，存在各种子类：TreeNode被安排在平衡树中，而不是列表中。
+     * TreeBins拥有TreeNode集的根。
+     * 在调整大小期间，ForwardingNodes放置在垃圾箱的顶部。
+     * 在computeIfAbsent和相关方法中建立值时，ReservationNode用作占位符。
+     * TreeBin，ForwardingNode和ReservationNode类型不包含常规用户键，值或哈希，并且在搜索等过程中易于区分，因为它们具有负的哈希字段以及空键和值字段。
+     * （这些特殊节点不是常见的还是瞬态的，因此携带一些未使用的字段的影响微不足道。）
+     * 第一次插入表时，表被延迟初始化为2的幂。表中的每个bin通常都包含一个节点列表（大多数情况下，该列表只有零个或一个节点）。
+     * 表访问需要易失性/原子性读，写和CASes。由于没有其他方法可以在不增加其他间接调用的情况下进行安排，因此我们使用内部函数（sun.misc.Unsafe）。
+     * 我们将Node哈希字段的最高（符号）位用于控制目的-由于寻址限制，它始终可用。具有负哈希字段的节点在map方法中经过特殊处理或忽略。
+     * 将第一个节点插入（通过put或其变体）到空容器中，只需将其CASing到容器中即可。
+     * 到目前为止，这是大多数键/哈希分布下的put操作的最常见情况。
+     * 其他更新操作（插入，删除和替换）需要锁。
+     * 我们不想浪费将不同的锁对象与每个bin关联所需的空间，
+     * 因此可以使用bin列表的第一个节点本身作为一个锁。对这些锁的锁定支持依赖于内置的“同步”监视器。
+     * 但是，将列表的第一个节点用作锁定本身并不能满足要求：锁定节点时，任何更新都必须首先确认它仍然是锁定后的第一个节点，否则请重试。
+     * 由于新节点总是附加到列表中，因此，一旦某个节点首次出现在bin中，它将一直保持在第一个位置，直到删除或bin失效（调整大小）。
+     * 每个bin锁的主要缺点是，受同一锁保护的bin列表中其他节点上的其他更新操作可能会停止，例如，当用户equals（）或映射函数花费很长时间时。
+     * 但是，从统计学上讲，在随机哈希码下，这不是一个普遍的问题。理想情况下，箱中节点的频率遵循泊松分布（http://en.wikipedia.org/wiki/Poisson_distribution），
+     * 平均参数约为0.5（给定调整大小阈值为0.75），尽管由于调整粒度。忽略方差，列表大小k的预期出现次数是（exp（-0.5）* pow（0.5，k）/ factorial（k））。
+     * 第一个值是：0：0.60653066 1：0.30326533 2：0.07581633 3：0.01263606 4：0.00157952 5：0.00015795 6：0.00001316 7：0.00000094 8：0.00000006
+     * 更多：小于一千万分之一的两个线程访问不同元素的锁争用概率为在随机散列下大约为1 /（8 * #elements）。
+     * 在实践中遇到的实际哈希码分布有时会明显偏离统一的随机性。这包括N>（1 << 30）的情况，因此某些键必须发生冲突。
+     * 类似地，对于愚蠢或恶意的用途，其中多个密钥被设计为具有相同的哈希码或仅在被掩盖的高位上不同的哈希码。
+     * 因此，我们使用了二级策略，该策略在bin中的节点数超过阈值时适用。
+     * 这些TreeBins使用平衡树来保存节点（红黑树的一种特殊形式），将搜索时间限制为O（log N）。
+     * TreeBin中的每个搜索步骤的速度至少是常规列表中速度的两倍，但是鉴于N不能超过（1 << 64）（在用完地址之前），
+     * 因此该范围限制了搜索步骤，锁定保持时间等。只要键是可比较的（很常见-字符串，长整数等），就可以使用常量（每次操作最多检查100个节点）。
+     * TreeBin节点（TreeNodes）还维护与常规节点相同的“下一个”遍历指针，因此可以在迭代器中以相同的方式遍历。
+     * 当占用率超过百分比阈值（标称值为0.75，但请参见下文）时，将调整表的大小。
+     * 在启动线程分配并设置替换阵列之后，任何注意到存储仓已满的线程都可以帮助调整大小。
+     * 但是，这些其他线程可能会发生插入等问题，而不是停滞不前。使用TreeBins可以防止我们在进行大小调整时最坏的情况下过度填充。
+     * 调整大小的方法是将垃圾箱从一个表一个接一个地转移到下一个表。但是，线程在这样做之前要求小的索引块（通过字段transferIndex）进行传输，从而减少了争用。
+     * 字段sizeCtl中的世代标记可确保调整大小不会重叠。因为我们使用的是2的幂次展开，所以每个bin中的元素必须保持相同的索引或以2个偏移量的幂移动。
+     * 通过捕获旧节点因为其下一个字段不会更改而可以重复使用的情况，我们消除了不必要的节点创建。
+     * 平均而言，当表加倍时，只有大约六分之一需要克隆。一旦它们不再被并发遍历表中间的任何读取器线程引用，它们替换的节点将立即被垃圾回收。
+     * 传输后，旧表容器仅包含一个特殊的转发节点（哈希字段为“ MOVED”），该节点包含下一个表作为其关键字。遇到转发节点时，将使用新表重新启动访问和更新操作。
+     * 每次bin传输都需要其bin锁，该bin锁可能会在调整大小时停止等待锁。但是，由于其他线程可以加入并帮助调整大小，而不是争夺锁，因此平均大小的等待时间随着调整大小的过程而变短。
+     * 传输操作还必须确保遍历旧表和新表中的所有可访问bin。这是通过从最后一个bin（table.length-1）到第一个bin进行部分安排的。
+     * 看到转发节点后，遍历（请参见Traverser类）安排在不重新访问节点的情况下移至新表。为了确保即使无序移动也不会跳过中间节点，
+     * 遍历过程中在遇到转发节点时会首先遇到一个堆栈（请参阅TableTable类），以在以后处理当前表时保持其位置。
+     * 这些保存/恢复机制的需求相对很少，但是当遇到一个转发节点时，通常会更多。因此，遍历器使用一种简单的缓存方案来避免创建许多新的TableStack节点。
+     * （感谢Peter Levart在这里建议使用堆栈。）遍历方案还适用于部分范围的bin遍历（通过备用Traverser构造函数），以支持分区聚合操作。
+     * 同样，只读操作如果转发到空表也将放弃，该操作提供对关机样式清除的支持，该功能目前还没有实现。
+     * 惰性表初始化可以最大程度地减少首次使用之前的占用空间，并且当第一个操作来自putAll，具有map参数的构造函数或反序列化时，还可以避免调整大小。
+     * 这些情况试图超越初始容量设置，但在比赛情况下无害地无法生效。元素计数使用LongAdder的特殊化来维护。我们需要合并一个专业化对象，
+     * 而不是仅仅使用LongAdder来访问隐式竞争感应，从而导致创建多个CounterCell。
+     * 计数器机制避免了更新争用，但是如果在并发访问期间读取得太频繁，则可能会遇到高速缓存崩溃的情况。
+     * 为了避免如此频繁地读取，仅在添加到已容纳两个或更多节点的容器中后才尝试在竞争下调整大小。
+     * 在统一的哈希分布下，此事件在阈值处发生的可能性约为13％，这意味着只有大约八分之一的位置放置了检查阈值（调整大小后，这样做的人要少得多）。
+     * TreeBins对搜索和相关操作使用一种特殊的比较形式（这是我们不能使用TreeMap等现有集合的主要原因）。
+     * TreeBins包含Comparable元素，但可能包含其他元素，以及相同T的Comparable但不一定是Comparable的元素，因此我们无法在它们之间调用compareTo。
+     * 为此，主要按哈希值对树进行排序，如果适用，则按Comparable.compareTo顺序对树进行排序。在查找节点时，如果元素不可比较或比较为0，则在绑定哈希值的情况下，
+     * 可能需要同时搜索左右子节点。 （这对应于如果所有元素都是非可比较的并且具有散列哈希的完整列表搜索。）在插入时，为了保持重新平衡的总顺序（或此处要求的最接近），
+     * 我们比较类和identityHashCodes作为决胜局。红黑平衡代码从jdk之前的收藏集（http://gee.cs.oswego.edu/dl/classes/collections/RBCell.java）更新而来，
+     * 依次基于Cormen，Leiserson和Rivest算法”（CLR）。 TreeBins还需要其他锁定机制。尽管即使在更新过程中，读者始终可以遍历列表，但无法遍历树，
+     * 主要是因为树的旋转可能会更改根节点和/或其链接。 TreeBins包括一个寄生在主要bin同步策略上的简单读写锁定机制：与插入或删除相关的结构调整已被bin锁定
+     * （因此不能与其他编写器发生冲突），但必须等待正在进行的读取器完成。由于只能有一个这样的服务员，因此我们使用一个简单的方案，使用一个“服务员”字段t块编写器。
+     * 但是，读者永远不需要阻塞。如果持有roo锁，它们将沿着慢速遍历路径（通过下一个指针）前进，直到锁可用或列表用尽，以先到者为准。这些情况不是很快，但不能使总预期吞吐量最大化。
+     * 与此类的早期版本保持API和序列化兼容性会带来一些奇怪的问题。主要是：我们保持不变，但未使用的构造函数参数引用了concurrencyLevel。
+     * 我们接受一个loadFactor构造函数参数，但仅将其应用于初始表容量（这是我们唯一可以保证兑现的能力）。我们还声明了一个未使用的“段”类，该类仅在序列化时以最小形式实例化。
+     * 同样，仅出于与此类的先前版本兼容的目的，它扩展了AbstractMap，即使其所有方法都被覆盖，因此也只是无济于事。
+     * 该文件的组织结构使事情在阅读时比在其他情况下更容易理解：首先是主要的静态声明和实用程序，然后是字段，然后是主要的公共方法（将多个公共方法分解成多个内部方法），
+     * 然后调整大小方法，树，遍历器和批量操作。
      */
 
     /* ---------------- Constants -------------- */
@@ -472,7 +539,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * bounds for power of two table sizes, and is further required
      * because the top two bits of 32bit hash fields are used for
      * control purposes.
-     * 散列表数组最大限制
+     * 散列表数组最大限制= 1073741824
      */
     private static final int MAXIMUM_CAPACITY = 1 << 30;
 
@@ -486,6 +553,8 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
     /**
      * The largest possible (non-power of two) array size.
      * Needed by toArray and related methods.
+     *
+     * 2147483639
      */
     static final int MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8;
 
@@ -531,6 +600,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * (Otherwise the table is resized if too many nodes in a bin.)
      * The value should be at least 4 * TREEIFY_THRESHOLD to avoid
      * conflicts between resizing and treeification thresholds.
+     *
      * 联合TREEIFY_THRESHOLD控制桶位是否树化，只有当table数组长度达到64且 某个桶位 中的链表长度达到8，才会真正树化
      */
     static final int MIN_TREEIFY_CAPACITY = 64;
@@ -3715,6 +3785,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
         if (tab != null) {
             //条件成立：说明当前table数组长度 未达到 64，此时不进行树化操作，进行扩容操作。
             if ((n = tab.length) < MIN_TREEIFY_CAPACITY) {
+                //如果table长度没有64，则值扩容，不树化
                 tryPresize(n << 1);
             }
 
@@ -3724,7 +3795,6 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                 synchronized (b) {
                     //条件成立：表示加锁没问题。
                     if (tabAt(tab, index) == b) {
-
                         TreeNode<K, V> hd = null, tl = null;
                         for (Node<K, V> e = b; e != null; e = e.next) {
                             TreeNode<K, V> p = new TreeNode<>(e.hash, e.key, e.val, null, null);
@@ -3735,7 +3805,7 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                             }
                             tl = p;
                         }
-
+                        //树化
                         setTabAt(tab, index, new TreeBin<K, V>(hd));
                     }
                 }
