@@ -307,6 +307,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * workerCount, indicating the effective number of threads
      * runState,    indicating whether running, shutting down etc
      *
+     * 主池控制状态ctl是一个原子整数，它包装了两个概念字段workerCount，指示线程的有效数量runState，指示是否运行，关闭等
+     *
      * In order to pack them into one int, we limit workerCount to
      * (2^29)-1 (about 500 million) threads rather than (2^31)-1 (2
      * billion) otherwise representable. If this is ever an issue in
@@ -358,14 +360,15 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * that workerCount is 0 (which sometimes entails a recheck -- see
      * below).
      */
-
     //高3位：表示当前线程池运行状态   除去高3位之后的低位（低29位）：表示当前线程池中所拥有的线程数量
     private final AtomicInteger ctl = new AtomicInteger(ctlOf(RUNNING, 0));
 
     //表示在ctl中，低COUNT_BITS位 是用于存放当前线程数量的位。
+    //Integer.SIZE = 32
+    //计数的bits
     private static final int COUNT_BITS = Integer.SIZE - 3;
 
-    //低COUNT_BITS位 所能表达的最大数值。 000 11111111111111111111 => 5亿多。
+    //低COUNT_BITS(29)位 所能表达的最大数值。 000 1 1111 1111 1111 111 1111 => 5亿多。
     private static final int CAPACITY = (1 << COUNT_BITS) - 1;
 
     // runState is stored in the high-order bits
@@ -379,18 +382,37 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     private static final int STOP = 1 << COUNT_BITS;
 
     //010 000000000000000000
+    //当最后一个线程退出的时候，会进入整理状态
     private static final int TIDYING = 2 << COUNT_BITS;
 
     //011 000000000000000000
     private static final int TERMINATED = 3 << COUNT_BITS;
 
     // Packing and unpacking ctl
-    //获取当前线程池运行状态
-    //~000 11111111111111111111 => 111 000000000000000000000
-    //c == ctl = 111 000000000000000000111
-    //111 000000000000000000111
-    //111 000000000000000000000
-    //111 000000000000000000000
+
+    /**
+     * 获取当前线程池运行状态
+     *
+     * 已知：
+     * CAPACITY     = 000 111111111111111111111
+     * ~CAPACITY    = 111 000000000000000000000
+     *
+     * 假设：
+     * c            = 111 000000000000000000111，位RUNNING状态
+     * c & ~CAPACITY= 111 000000000000000000000
+     *
+     * 结果分析：
+     * 前三位还是ctl的前三位，但是后29位都是0了
+     * 这个结果就是当前线程池的状态
+     *
+     * 总结：
+     * 1.传入当前  c =ctl
+     * 2.把 c 的低29位都设置位0
+     * 3.此时整个c的32位就是表示状态
+     *
+     * @param c
+     * @return
+     */
     private static int runStateOf(int c) {
         return c & ~CAPACITY;
     }
@@ -400,26 +422,66 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     //111 000000000000000000111
     //000 111111111111111111111
     //000 000000000000000000111 => 7
+
+    /**
+     * 获取当前线程池线程数量
+     *
+     * 已知：
+     * CAPACITY     = 000 111111111111111111111
+     *
+     * 假设：
+     * c            = 111 000000000000000000111，为RUNNING状态
+     *
+     * 则：
+     * c & CAPACITY = 000 000000000000000000111
+     *
+     * 结果分析：
+     * 前3位都是0了，而后29位还是原来c的后29位，
+     * 因为ctl之前的低29位就是线程数量，所以得到的结果整个32位就是线程数量
+     *
+     * 总结：
+     * 1.传入当前 c= ctl
+     * 2.把 c 的高三位都设置位，低29位不变
+     * 3.则结果整个32位就是当前线程数量
+     *
+     * @param c
+     * @return
+     */
     private static int workerCountOf(int c) {
         return c & CAPACITY;
     }
 
-    //用在重置当前线程池ctl值时  会用到
-    //rs 表示线程池状态   wc 表示当前线程池中worker（线程）数量
-    //111 000000000000000000
-    //000 000000000000000111
-    //111 000000000000000111
+    /**
+     * 用在重置当前线程池ctl值时  会用到
+     *
+     * 假设：
+     * rs       = 111 000000000000000000
+     * wc       = 000 000000000000000111
+     *
+     * 则：
+     * rs | wc  = 111 000000000000000111
+     *
+     * @param rs 表示线程池状态
+     * @param wc 表示当前线程池中worker（线程）数量
+     * @return TODO ?
+     */
     private static int ctlOf(int rs, int wc) {
         return rs | wc;
     }
 
-    /*
-     * Bit field accessors that don't require unpacking ctl.
-     * These depend on the bit layout and on workerCount being never negative.
+    /**
+     * 不需要解压缩ctl的位字段访问器。这些取决于位布局和workerCount永远不会为负。
+     *
+     * 比较当前线程池ctl所表示的状态，是否小于某个状态s
+     *
+     * c = 111 000000000000000111 <  000 000000000000000000 == true
+     *
+     * 所有情况下，RUNNING < SHUTDOWN < STOP < TIDYING < TERMINATED
+     *
+     * @param c
+     * @param s
+     * @return
      */
-    //比较当前线程池ctl所表示的状态，是否小于某个状态s
-    //c = 111 000000000000000111 <  000 000000000000000000 == true
-    //所有情况下，RUNNING < SHUTDOWN < STOP < TIDYING < TERMINATED
     private static boolean runStateLessThan(int c, int s) {
         return c < s;
     }
@@ -596,8 +658,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * The default rejected execution handler
      */
     //缺省拒绝策略，采用的是AbortPolicy 抛出异常的方式。
-    private static final RejectedExecutionHandler defaultHandler =
-            new AbortPolicy();
+    private static final RejectedExecutionHandler defaultHandler = new AbortPolicy();
 
     /**
      * Permission required for callers of shutdown and shutdownNow.
@@ -619,8 +680,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * and failure to actually interrupt will merely delay response to
      * configuration changes so is not handled exceptionally.
      */
-    private static final RuntimePermission shutdownPerm =
-            new RuntimePermission("modifyThread");
+    private static final RuntimePermission shutdownPerm = new RuntimePermission("modifyThread");
 
     /* The context to be used when executing the finalizer, or null. */
     private final AccessControlContext acc;
@@ -641,9 +701,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * state to a negative value, and clear it upon start (in
      * runWorker).
      */
-    private final class Worker
-            extends AbstractQueuedSynchronizer
-            implements Runnable {
+    private final class Worker extends AbstractQueuedSynchronizer implements Runnable {
         //Worker采用了AQS的独占模式
         //独占模式：两个重要属性  state  和  ExclusiveOwnerThread
         //state：0时表示未被占用 > 0时表示被占用   < 0 时 表示初始状态，这种情况下不能被抢锁。
@@ -777,8 +835,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             int c = ctl.get();
             //条件成立：假设targetState == SHUTDOWN，说明 当前线程池状态是 >= SHUTDOWN
             //条件不成立：假设targetState == SHUTDOWN ，说明当前线程池状态是RUNNING。
-            if (runStateAtLeast(c, targetState) ||
-                    ctl.compareAndSet(c, ctlOf(targetState, workerCountOf(c)))) {
+            if (
+                    runStateAtLeast(c, targetState)
+                            ||
+                            ctl.compareAndSet(c, ctlOf(targetState, workerCountOf(c)))) {
                 break;
             }
         }
