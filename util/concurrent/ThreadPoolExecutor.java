@@ -731,8 +731,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      */
     private final class Worker extends AbstractQueuedSynchronizer implements Runnable {
         //Worker采用了AQS的独占模式
-        //独占模式：两个重要属性  state  和  ExclusiveOwnerThread
-        //state：0时表示未被占用 > 0时表示被占用   < 0 时 表示初始状态，这种情况下不能被抢锁。
+        //独占模式：两个重要属性  state  和  ExclusiveOwnerThread（专有所有者线程）
+        //state：
+        // 0 时表示未被占用
+        // > 0时表示被占用：加锁了
+        // < 0 时 表示初始状态，这种情况下不能被抢锁。
         //ExclusiveOwnerThread:表示独占锁的线程。
 
         /**
@@ -742,41 +745,47 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         private static final long serialVersionUID = 6138294804551838833L;
 
         /**
-         * Thread this worker is running in.  Null if factory fails.
+         * worker内部封装的工作线程
+         * Thread this worker is running in.  Null if factory fails. - 此工作程序正在其中运行的线程。如果工厂失败，则为null。
          */
-        //worker内部封装的工作线程
         final Thread thread;
 
         /**
-         * Initial task to run.  Possibly null.
+         * 假设firstTask不为空，那么当worker启动后（内部的线程启动)会优先执行firstTask，
+         * 当执行完firstTask后，会到queue中去获取下一个任务。
+         *
+         * Initial task to run.  Possibly null. -- 要运行的初始任务。可能为null。
          */
-        //假设firstTask不为空，那么当worker启动后（内部的线程启动)会优先执行firstTask，当执行完firstTask后，会到queue中去获取下一个任务。
         Runnable firstTask;
 
         /**
+         * 记录当前worker所完成任务数量。
          * Per-thread task counter
          */
-        //记录当前worker所完成任务数量。
         volatile long completedTasks;
 
         /**
          * Creates with given first task and thread from ThreadFactory.
          *
-         * @param firstTask the first task (null if none)
+         * firstTask可以为null。为null 启动后会到queue中获取。
+         *
+         * @param firstTask the first task (null if none) 可以为空
          */
-        //firstTask可以为null。为null 启动后会到queue中获取。
         Worker(Runnable firstTask) {
-            //设置AQS独占模式为初始化中状态，这个时候 不能被抢占锁。
+            //TODO 设置AQS独占模式为初始化中状态，这个时候 不能被抢占锁。
             setState(-1); // inhibit interrupts until runWorker
             this.firstTask = firstTask;
-            //使用线程工厂创建了一个线程，并且将当前worker 指定为 Runnable，也就是说当thread启动的时候，会以worker.run()为入口。
+            //使用线程工厂创建了一个线程，并且将当前worker 指定为 Runnable，
+            //也就是说当thread启动的时候，会以worker.run()为入口。
             this.thread = getThreadFactory().newThread(this);
         }
 
         /**
+         * 当worker启动时，会执行run()
          * Delegates main run loop to outer runWorker
+         *
+         * @see Worker#Worker(java.lang.Runnable) 因为创建的时候传的就是当前对象
          */
-        //当worker启动时，会执行run()
         public void run() {
             //ThreadPoolExecutor->runWorker() 这个是核心方法，等后面分析worker启动后逻辑时会以这里切入。
             runWorker(this);
@@ -799,21 +808,22 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             //使用CAS修改 AQS中的 state ，期望值为0(0时表示未被占用），修改成功表示当前线程抢占成功
             //那么则设置 ExclusiveOwnerThread 为当前线程。
             if (compareAndSetState(0, 1)) {
+                //设置 ExclusiveOwnerThread 为当前线程。
                 setExclusiveOwnerThread(Thread.currentThread());
                 return true;
             }
-
             return false;
         }
 
-        //外部不会直接调用这个方法 这个方法是AQS 内调用的，外部调用unlock时 ，unlock->AQS.release() ->tryRelease()
+        //外部不会直接调用这个方法 这个方法是AQS 内调用的，
+        //外部调用unlock时 ，unlock->AQS.release() ->tryRelease()
         protected boolean tryRelease(int unused) {
             setExclusiveOwnerThread(null);
             setState(0);
             return true;
         }
 
-        //加锁，加锁失败时，会阻塞当前线程，直到获取到锁位置。
+        //加锁，加锁失败时，会阻塞当前线程，直到获取到锁为止。
         public void lock() {
             acquire(1);
         }
@@ -825,7 +835,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
         //一般情况下，咱们调用unlock 要保证 当前线程是持有锁的。
         //特殊情况，当worker的state == -1 时，调用unlock 表示初始化state 设置state == 0
-        //启动worker之前会先调用unlock()这个方法。会强制刷新ExclusiveOwnerThread == null State==0
+        //启动worker之前会先调用unlock()这个方法。会强制刷新ExclusiveOwnerThread = null State=0
         public void unlock() {
             release(1);
         }
