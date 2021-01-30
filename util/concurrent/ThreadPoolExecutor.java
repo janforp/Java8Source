@@ -586,8 +586,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     private final Condition termination = mainLock.newCondition();
 
     /**
-     * Tracks largest attained pool size. Accessed only under
-     * mainLock.
+     * Tracks largest attained pool size. Accessed only under mainLock.
      */
     //记录线程池生命周期内 线程数最大值
     private int largestPoolSize;
@@ -622,15 +621,20 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * will want to perform clean pool shutdown to clean up.  There
      * will likely be enough memory available for the cleanup code to
      * complete without encountering yet another OutOfMemoryError.
+     *
+     * 创建线程时会使用 线程工厂，当我们使用 Executors.newFix...  newCache... 创建线程池时，使用的是 DefaultThreadFactory
+     * 一般不建议使用Default线程池，推荐自己实现ThreadFactory
+     *
+     * @see Executors.DefaultThreadFactory
      */
-    //创建线程时会使用 线程工厂，当我们使用 Executors.newFix...  newCache... 创建线程池时，使用的是 DefaultThreadFactory
-    //一般不建议使用Default线程池，推荐自己实现ThreadFactory
     private volatile ThreadFactory threadFactory;
 
     /**
      * Handler called when saturated or shutdown in execute.
+     * 拒绝策略，juc包提供了4中方式，默认采用 AbortPolicy()..抛出异常的方式。
+     *
+     * @see AbortPolicy
      */
-    //拒绝策略，juc包提供了4中方式，默认采用 Abort..抛出异常的方式。
     private volatile RejectedExecutionHandler handler;
 
     /**
@@ -638,38 +642,45 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * Threads use this timeout when there are more than corePoolSize
      * present or if allowCoreThreadTimeOut. Otherwise they wait
      * forever for new work.
+     *
+     * 空闲线程存活时间，当
+     * allowCoreThreadTimeOut == false 时，会维护核心线程数量内的线程存活，超出部分会被超时。
+     * allowCoreThreadTimeOut == true 核心数量内的线程 空闲时 也会被回收。
+     *
+     * @see ThreadPoolExecutor#allowCoreThreadTimeOut
      */
-    //空闲线程存活时间，当allowCoreThreadTimeOut == false 时，会维护核心线程数量内的线程存活，超出部分会被超时。
-    //allowCoreThreadTimeOut == true 核心数量内的线程 空闲时 也会被回收。
     private volatile long keepAliveTime;
 
     /**
      * If false (default), core threads stay alive even when idle.
      * If true, core threads use keepAliveTime to time out waiting
      * for work.
+     * 控制核心线程数量内的线程 是否可以被回收。true 可以，false不可以
      */
-    //控制核心线程数量内的线程 是否可以被回收。true 可以，false不可以。
     private volatile boolean allowCoreThreadTimeOut;
 
     /**
      * Core pool size is the minimum number of workers to keep alive
      * (and not allow to time out etc) unless allowCoreThreadTimeOut
      * is set, in which case the minimum is zero.
+     *
+     * 核心线程数量限制
      */
-    //核心线程数量限制。
     private volatile int corePoolSize;
 
     /**
+     * 线程池最大线程数量限制
+     *
      * Maximum pool size. Note that the actual maximum is internally
      * bounded by CAPACITY.
      */
-    //线程池最大线程数量限制。
     private volatile int maximumPoolSize;
 
     /**
      * The default rejected execution handler
+     *
+     * 缺省拒绝策略，采用的是AbortPolicy 抛出异常的方式。
      */
-    //缺省拒绝策略，采用的是AbortPolicy 抛出异常的方式。
     private static final RejectedExecutionHandler defaultHandler = new AbortPolicy();
 
     /**
@@ -691,9 +702,14 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * termination. Other uses of interruptIdleWorkers are advisory,
      * and failure to actually interrupt will merely delay response to
      * configuration changes so is not handled exceptionally.
+     *
+     * 跟权限相关
      */
     private static final RuntimePermission shutdownPerm = new RuntimePermission("modifyThread");
 
+    /**
+     * 跟权限相关
+     */
     /* The context to be used when executing the finalizer, or null. */
     private final AccessControlContext acc;
 
