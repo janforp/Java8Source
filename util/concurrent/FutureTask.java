@@ -31,6 +31,8 @@ import java.util.concurrent.locks.LockSupport;
  * {@code protected} functionality that may be useful when creating
  * customized task classes.
  *
+ * 可取消的异步计算
+ *
  * @param <V> The result type returned by this FutureTask's {@code get} methods
  * @author Doug Lea
  * @since 1.5
@@ -572,7 +574,9 @@ public class FutureTask<V> implements RunnableFuture<V> {
             else if (s == COMPLETING) {
                 // cannot time out yet
                 Thread.yield();
-            } else if (q == null) {
+            }
+
+            else if (q == null) {
                 //条件成立：第一次自旋，当前线程还未创建 WaitNode 对象，此时为当前线程创建 WaitNode对象
                 q = new WaitNode();
             }
