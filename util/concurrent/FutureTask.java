@@ -1,39 +1,4 @@
-﻿/*
- * ORACLE PROPRIETARY/CONFIDENTIAL. Use is subject to license terms.
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- */
-
-/*
- *
- *
- *
- *
- *
- * Written by Doug Lea with assistance from members of JCP JSR-166
- * Expert Group and released to the public domain, as explained at
- * http://creativecommons.org/publicdomain/zero/1.0/
- */
-
-package util.concurrent;
+﻿package util.concurrent;
 
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
@@ -82,6 +47,10 @@ public class FutureTask<V> implements RunnableFuture<V> {
      *
      * Style note: As usual, we bypass overhead of using
      * AtomicXFieldUpdaters and instead directly use Unsafe intrinsics.
+     *
+     * 修订说明：这与依赖AbstractQueuedSynchronizer的此类的早期版本不同，主要是为了避免用户对取消比赛期间保留中断状态感到惊讶。
+     * 当前设计中的同步控制依赖于通过CAS更新的“状态”字段来跟踪完成情况，以及一个简单的Treiber堆栈来保存等待线程。样式说明：与往常一样，
+     * 我们绕过了使用AtomicXFieldUpdaters的开销，而是直接使用Unsafe内部函数。
      */
 
     /**
@@ -121,13 +90,17 @@ public class FutureTask<V> implements RunnableFuture<V> {
     //当前任务中断中..
     private static final int INTERRUPTING = 5;
 
+    /**
+     * 中断只是线程的一个标记,不是把线程给断了，只是通知一下
+     */
     //当前任务已中断
     private static final int INTERRUPTED = 6;
 
     /**
      * The underlying callable; nulled out after running
+     *
+     * submit(runnable/callable)   runnable 使用 装饰者模式 伪装成 Callable了。
      */
-    //submit(runnable/callable)   runnable 使用 装饰者模式 伪装成 Callable了。
     private Callable<V> callable;
 
     /**
@@ -150,32 +123,6 @@ public class FutureTask<V> implements RunnableFuture<V> {
     private volatile WaitNode waiters;
 
     /**
-     * Returns result or throws exception for completed task.
-     *
-     * @param s completed state value
-     */
-    @SuppressWarnings("unchecked")
-    private V report(int s) throws ExecutionException {
-        //正常情况下，outcome 保存的是callable运行结束的结果
-        //非正常，保存的是 callable 抛出的异常。
-        Object x = outcome;
-        //条件成立：当前任务状态正常结束
-        if (s == NORMAL)
-        //直接返回callable运算结果
-        {
-            return (V) x;
-        }
-
-        //被取消状态
-        if (s >= CANCELLED) {
-            throw new CancellationException();
-        }
-
-        //执行到这，说明callable接口实现中，是有bug的...
-        throw new ExecutionException((Throwable) x);
-    }
-
-    /**
      * Creates a {@code FutureTask} that will, upon running, execute the
      * given {@code Callable}.
      *
@@ -188,7 +135,7 @@ public class FutureTask<V> implements RunnableFuture<V> {
         }
         //callable就是程序员自己实现的业务类
         this.callable = callable;
-        //设置当前任务状态为 NEW
+        //设置当前任务状态为 NEW 确保可调用的可见性
         this.state = NEW;       // ensure visibility of callable
     }
 
@@ -205,10 +152,36 @@ public class FutureTask<V> implements RunnableFuture<V> {
      * @throws NullPointerException if the runnable is null
      */
     public FutureTask(Runnable runnable, V result) {
-        //使用装饰者模式将runnable转换为了 callable接口，外部线程 通过get获取
+        //使用装饰者模式 /适配器模式 (RunnableAdapter)将runnable转换为了 callable接口，外部线程 通过get获取
         //当前任务执行结果时，结果可能为 null 也可能为 传进来的值。
         this.callable = Executors.callable(runnable, result);
         this.state = NEW;       // ensure visibility of callable
+    }
+
+    /**
+     * Returns result or throws exception for completed task.
+     *
+     * @param s completed state value
+     */
+    @SuppressWarnings("unchecked")
+    private V report(int s) throws ExecutionException {
+        //正常情况下，outcome 保存的是callable运行结束的结果
+        //非正常，保存的是 callable 抛出的异常。
+        Object x = outcome;
+        //条件成立：当前任务状态正常结束
+        if (s == NORMAL) {
+            //直接返回callable运算结果
+
+            return (V) x;
+        }
+
+        //被取消状态
+        if (s >= CANCELLED) {
+            throw new CancellationException();
+        }
+
+        //执行到这，说明callable接口实现中，是有bug的...
+        throw new ExecutionException((Throwable) x);
     }
 
     public boolean isCancelled() {
@@ -220,24 +193,22 @@ public class FutureTask<V> implements RunnableFuture<V> {
     }
 
     public boolean cancel(boolean mayInterruptIfRunning) {
-        //条件一：state == NEW 成立 表示当前任务处于运行中 或者 处于线程池 任务队列中..
-        //条件二：UNSAFE.compareAndSwapInt(this, stateOffset, NEW, mayInterruptIfRunning ? INTERRUPTING : CANCELLED))
-        //      条件成立：说明修改状态成功，可以去执行下面逻辑了，否则 返回false 表示cancel失败。
-        if (!(state == NEW &&
-                UNSAFE.compareAndSwapInt(this, stateOffset, NEW,
-                        mayInterruptIfRunning ? INTERRUPTING : CANCELLED))) {
+        if (!(state == NEW//条件一：state == NEW 成立 表示当前任务处于运行中 或者 处于线程池 任务队列中..
+                &&
+                // 条件成立：说明修改状态成功，可以去执行下面逻辑了，否则 返回false 表示cancel失败。
+                UNSAFE.compareAndSwapInt(this, stateOffset, NEW, mayInterruptIfRunning ? INTERRUPTING : CANCELLED))) {
             return false;
         }
 
-        try {    // in case call to interrupt throws exception
+        try {
+            // in case call to interrupt throws exception(万一中断调用引发异常)
             if (mayInterruptIfRunning) {
                 try {
                     //执行当前FutureTask 的线程，有可能现在是null，是null 的情况是： 当前任务在 队列中，还没有线程获取到它呢。。
                     Thread t = runner;
                     //条件成立：说明当前线程 runner ，正在执行task.
-                    if (t != null)
-                    //给runner线程一个中断信号.. 如果你的程序是响应中断 会走中断逻辑..假设你程序不是响应中断的..啥也不会发生。
-                    {
+                    if (t != null) {
+                        //给runner线程一个中断信号.. 如果你的程序是响应中断 会走中断逻辑..假设你程序不是响应中断的..啥也不会发生。
                         t.interrupt();
                     }
                 } finally { // final state
@@ -250,7 +221,6 @@ public class FutureTask<V> implements RunnableFuture<V> {
             //唤醒所有get() 阻塞的线程。
             finishCompletion();
         }
-
         return true;
     }
 
@@ -262,25 +232,23 @@ public class FutureTask<V> implements RunnableFuture<V> {
         //获取当前任务状态
         int s = state;
         //条件成立：未执行、正在执行、正完成。 调用get的外部线程会被阻塞在get方法上。
-        if (s <= COMPLETING)
-        //返回task当前状态，可能当前线程在里面已经睡了一会了..
-        {
+        if (s <= COMPLETING) {
+            //返回task当前状态，可能当前线程在里面已经睡了一会了..
             s = awaitDone(false, 0L);
         }
-
         return report(s);
     }
 
     /**
      * @throws CancellationException {@inheritDoc}
      */
-    public V get(long timeout, TimeUnit unit)
-            throws InterruptedException, ExecutionException, TimeoutException {
+    public V get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
         if (unit == null) {
             throw new NullPointerException();
         }
         int s = state;
-        if (s <= COMPLETING &&
+        if (s <= COMPLETING
+                &&
                 (s = awaitDone(true, unit.toNanos(timeout))) <= COMPLETING) {
             throw new TimeoutException();
         }
@@ -312,11 +280,9 @@ public class FutureTask<V> implements RunnableFuture<V> {
         //使用CAS方式设置当前任务状态为 完成中..
         //有没有可能失败呢？ 外部线程等不及了，直接在set执行CAS之前 将  task取消了。  很小概率事件。
         if (UNSAFE.compareAndSwapInt(this, stateOffset, NEW, COMPLETING)) {
-
             outcome = v;
             //将结果赋值给 outcome之后，马上会将当前任务状态修改为 NORMAL 正常结束状态。
             UNSAFE.putOrderedInt(this, stateOffset, NORMAL); // final state
-
             //猜一猜？
             //最起码得把get() 再此阻塞的线程 唤醒..
             finishCompletion();
@@ -349,26 +315,29 @@ public class FutureTask<V> implements RunnableFuture<V> {
     //submit(runnable/callable) -> newTaskFor(runnable) -> execute(task)   -> pool
     //任务执行入口
     public void run() {
-        //条件一：state != NEW 条件成立，说明当前task已经被执行过了 或者 被cancel 了，总之非NEW状态的任务，线程就不处理了。
-        //条件二：!UNSAFE.compareAndSwapObject(this, runnerOffset,null, Thread.currentThread())
-        //       条件成立：cas失败，当前任务被其它线程抢占了...
-        if (state != NEW ||
-                !UNSAFE.compareAndSwapObject(this, runnerOffset,
-                        null, Thread.currentThread())) {
+        if (state != NEW//state != NEW 成立，说明当前task已经被执行过了 或者 被cancel 了，总之非NEW状态的任务，线程就不处理了。
+                ||
+                //条件成立：cas失败，当前任务被其它线程抢占了...
+                !UNSAFE.compareAndSwapObject(this, runnerOffset, null, Thread.currentThread())) {
+
+            //run的时候状态不是 NEW 或者 当前任务已经有线程在执行了，则当前线程直接返回
             return;
         }
 
         //执行到这里，当前task一定是 NEW 状态，而且 当前线程也抢占TASK成功！
 
         try {
-            //callable 就是程序员自己封装逻辑的callable 或者 装饰后的runnable
+            //callable 就是程序员自己封装逻辑的 callable 或者 装饰后的 runnable
+            //这个 callable 是程序员传进来的
             Callable<V> c = callable;
-            //条件一：c != null 防止空指针异常
-            //条件二：state == NEW 防止外部线程 cancel掉当前任务。
-            if (c != null && state == NEW) {
+            if (c != null //c != null 防止空指针异常
+                    &&
+                    //防止外部线程 cancel掉当前任务。
+                    state == NEW) {
 
                 //结果引用
                 V result;
+
                 //true 表示callable.run 代码块执行成功 未抛出异常
                 //false 表示callable.run 代码块执行失败 抛出异常
                 boolean ran;
@@ -385,10 +354,9 @@ public class FutureTask<V> implements RunnableFuture<V> {
                     setException(ex);
                 }
 
-                if (ran)
-                //说明当前c.call正常执行结束了。
-                //set就是设置结果到outcome
-                {
+                if (ran) {
+                    //说明当前c.call正常执行结束了。
+                    //set就是设置结果到outcome
                     set(result);
                 }
             }
@@ -399,9 +367,8 @@ public class FutureTask<V> implements RunnableFuture<V> {
             // state must be re-read after nulling runner to prevent
             // leaked interrupts
             int s = state;
-            if (s >= INTERRUPTING)
-            //回头再说..讲了 cancel() 就明白了。
-            {
+            if (s >= INTERRUPTING) {
+                //回头再说..讲了 cancel() 就明白了。
                 handlePossibleCancellationInterrupt(s);
             }
         }
@@ -414,12 +381,14 @@ public class FutureTask<V> implements RunnableFuture<V> {
      * designed for use with tasks that intrinsically execute more
      * than once.
      *
+     * 在不设置计算结果的情况下执行计算，然后将此未来状态重置为初始状态，如果计算遇到异常或被取消，则无法执行此操作。设计用于本质上执行多次的任务。
+     *
      * @return {@code true} if successfully run and reset
      */
     protected boolean runAndReset() {
-        if (state != NEW ||
-                !UNSAFE.compareAndSwapObject(this, runnerOffset,
-                        null, Thread.currentThread())) {
+        if (state != NEW
+                ||
+                !UNSAFE.compareAndSwapObject(this, runnerOffset, null, Thread.currentThread())) {
             return false;
         }
         boolean ran = false;
@@ -476,6 +445,11 @@ public class FutureTask<V> implements RunnableFuture<V> {
      * Simple linked list nodes to record waiting threads in a Treiber
      * stack.  See other classes such as Phaser and SynchronousQueue
      * for more detailed explanation.
+     *
+     * 这是一个栈
+     * 表示有多个线程调用 FutureTask#get()函数 等待
+     *
+     * waiting 状态的线程是不会去抢占cpu的,除非被唤醒
      */
     static final class WaitNode {
 
@@ -533,12 +507,15 @@ public class FutureTask<V> implements RunnableFuture<V> {
     /**
      * Awaits completion or aborts on interrupt or timeout.
      *
+     * ---
+     *
+     * 等待完成，或者在中断或超时时中止。
+     *
      * @param timed true if use timed waits
      * @param nanos time to wait, if timed
      * @return state upon completion
      */
-    private int awaitDone(boolean timed, long nanos)
-            throws InterruptedException {
+    private int awaitDone(boolean timed, long nanos) throws InterruptedException {
         //0 不带超时
         final long deadline = timed ? System.nanoTime() + nanos : 0L;
         //引用当前线程 封装成 WaitNode 对象
@@ -547,7 +524,6 @@ public class FutureTask<V> implements RunnableFuture<V> {
         boolean queued = false;
         //自旋
         for (; ; ) {
-
             //条件成立：说明当前线程唤醒 是被其它线程使用中断这种方式喊醒的。interrupted()
             //返回true 后会将 Thread的中断标记重置回false.
             if (Thread.interrupted()) {
@@ -556,14 +532,12 @@ public class FutureTask<V> implements RunnableFuture<V> {
                 //get方法抛出 中断异常。
                 throw new InterruptedException();
             }
-
             //假设当前线程是被其它线程 使用unpark(thread) 唤醒的话。会正常自旋，走下面逻辑。
 
             //获取当前任务最新状态
             int s = state;
             //条件成立：说明当前任务 已经有结果了.. 可能是好 可能是 坏..
             if (s > COMPLETING) {
-
                 //条件成立：说明已经为当前线程创建过node了，此时需要将 node.thread = null helpGC
                 if (q != null) {
                     q.thread = null;
@@ -572,8 +546,8 @@ public class FutureTask<V> implements RunnableFuture<V> {
                 return s;
             }
             //条件成立：说明当前任务接近完成状态...这里让当前线程再释放cpu ，进行下一次抢占cpu。
-            else if (s == COMPLETING) // cannot time out yet
-            {
+            else if (s == COMPLETING) {
+                // cannot time out yet
                 Thread.yield();
             }
             //条件成立：第一次自旋，当前线程还未创建 WaitNode 对象，此时为当前线程创建 WaitNode对象
@@ -595,10 +569,9 @@ public class FutureTask<V> implements RunnableFuture<V> {
                     return state;
                 }
                 LockSupport.parkNanos(this, nanos);
-            } else
-            //当前get操作的线程就会被park了。  线程状态会变为 WAITING状态，相当于休眠了..
-            //除非有其它线程将你唤醒  或者 将当前线程 中断。
-            {
+            } else {
+                //当前get操作的线程就会被park了。  线程状态会变为 WAITING状态，相当于休眠了..
+                //除非有其它线程将你唤醒  或者 将当前线程 中断。
                 LockSupport.park(this);
             }
         }
@@ -613,6 +586,9 @@ public class FutureTask<V> implements RunnableFuture<V> {
      * race.  This is slow when there are a lot of nodes, but we don't
      * expect lists to be long enough to outweigh higher-overhead
      * schemes.
+     *
+     * 尝试取消链接超时或中断的等待节点，以避免积累垃圾。内部节点在没有CAS的情况下根本不会被拼接，因为如果释放者无论如何遍历它们，都是无害的。
+     * 为了避免从已删除的节点取消拆分的影响，在出现明显竞争的情况下会重新遍历该列表。当节点很多时，这很慢，但是我们不希望列表足够长以超过开销更高的方案。
      */
     private void removeWaiter(WaitNode node) {
         if (node != null) {
@@ -629,8 +605,7 @@ public class FutureTask<V> implements RunnableFuture<V> {
                         {
                             continue retry;
                         }
-                    } else if (!UNSAFE.compareAndSwapObject(this, waitersOffset,
-                            q, s)) {
+                    } else if (!UNSAFE.compareAndSwapObject(this, waitersOffset, q, s)) {
                         continue retry;
                     }
                 }

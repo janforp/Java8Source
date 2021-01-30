@@ -164,6 +164,5 @@ public interface Future<V> {
      * while waiting
      * @throws TimeoutException if the wait timed out
      */
-    V get(long timeout, TimeUnit unit)
-        throws InterruptedException, ExecutionException, TimeoutException;
+    V get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException;
 }
