@@ -398,7 +398,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * ~CAPACITY    = 111 000000000000000000000
      *
      * 假设：
-     * c            = 111 000000000000000000111，位RUNNING状态
+     * c            = 111 000000000000000000111，是RUNNING状态
      * c & ~CAPACITY= 111 000000000000000000000
      *
      * 结果分析：
@@ -410,18 +410,12 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * 2.把 c 的低29位都设置位0
      * 3.此时整个c的32位就是表示状态
      *
-     * @param c
+     * @param c ctl
      * @return
      */
     private static int runStateOf(int c) {
         return c & ~CAPACITY;
     }
-
-    //获取当前线程池线程数量
-    //c == ctl = 111 000000000000000000111
-    //111 000000000000000000111
-    //000 111111111111111111111
-    //000 000000000000000000111 => 7
 
     /**
      * 获取当前线程池线程数量
@@ -433,7 +427,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * c            = 111 000000000000000000111，为RUNNING状态
      *
      * 则：
-     * c & CAPACITY = 000 000000000000000000111
+     * c & CAPACITY = 000 000000000000000000111 有7个线程
      *
      * 结果分析：
      * 前3位都是0了，而后29位还是原来c的后29位，
@@ -444,7 +438,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * 2.把 c 的高三位都设置位，低29位不变
      * 3.则结果整个32位就是当前线程数量
      *
-     * @param c
+     * @param c ctl
      * @return
      */
     private static int workerCountOf(int c) {
@@ -463,7 +457,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      *
      * @param rs 表示线程池状态
      * @param wc 表示当前线程池中worker（线程）数量
-     * @return TODO ?
+     * @return 新的ctl值
      */
     private static int ctlOf(int rs, int wc) {
         return rs | wc;
@@ -472,7 +466,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     /**
      * 不需要解压缩ctl的位字段访问器。这些取决于位布局和workerCount永远不会为负。
      *
-     * 比较当前线程池ctl所表示的状态，是否小于某个状态s
+     * 一般用于：比较当前线程池ctl所表示的状态，是否小于某个状态s
      *
      * c = 111 000000000000000111 <  000 000000000000000000 == true
      *
@@ -498,29 +492,33 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
     /**
      * Attempts to CAS-increment the workerCount field of ctl.
+     * 使用CAS方式 让ctl值+1 ，成功返回true, 失败返回false
      */
-    //使用CAS方式 让ctl值+1 ，成功返回true, 失败返回false
     private boolean compareAndIncrementWorkerCount(int expect) {
         return ctl.compareAndSet(expect, expect + 1);
     }
 
     /**
      * Attempts to CAS-decrement the workerCount field of ctl.
+     * 使用CAS方式 让ctl值-1 ，成功返回true, 失败返回false
      */
-    //使用CAS方式 让ctl值-1 ，成功返回true, 失败返回false
     private boolean compareAndDecrementWorkerCount(int expect) {
         return ctl.compareAndSet(expect, expect - 1);
     }
 
     /**
+     * 将ctl值减一，这个方法一定成功
+     *
      * Decrements the workerCount field of ctl. This is called only on
      * abrupt termination of a thread (see processWorkerExit). Other
      * decrements are performed within getTask.
+     *
+     * 减少ctl的workerCount字段。仅在线程突然终止时调用此方法（请参阅processWorkerExit）。其他减量在getTask中执行。
      */
-    //将ctl值减一，这个方法一定成功
     private void decrementWorkerCount() {
         //这里会一直重试，直到成功为止。
         do {
+            //empty
         } while (!compareAndDecrementWorkerCount(ctl.get()));
     }
 
@@ -534,6 +532,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * queues such as DelayQueues for which poll() is allowed to
      * return null even if it may later return non-null when delays
      * expire.
+     *
+     * 用于保留任务并移交给工作线程的队列。
+     * 我们不要求workQueue.poll（）返回null必然意味着workQueue.isEmpty（），
+     * 因此仅依靠isEmpty来查看队列是否为空（例如，在决定是否从SHUTDOWN过渡到TIDYING时必须这样做） 。
+     * 这可容纳特殊用途的队列，例如DelayQueues，允许poll（）返回null，即使它在延迟到期后稍后可能返回non-null。
      */
     //任务队列，当线程池中的线程达到核心线程数量时，再提交任务 就会直接提交到 workQueue
     //workQueue  instanceOf ArrayBrokingQueue   LinkedBrokingQueue  同步队列
@@ -563,14 +566,23 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     private final HashSet<Worker> workers = new HashSet<Worker>();
 
     /**
-     * Wait condition to support awaitTermination
+     * Wait condition to support awaitTermination ---- 等待条件以支持awaitTermination
+     *
+     * 当外部线程调用  awaitTermination() {@link ThreadPoolExecutor#awaitTermination(long, java.util.concurrent.TimeUnit)}方法时，
+     * 外部线程会等待当前线程池状态为 Termination 为止。
+     * 等待是如何实现的？ 就是将外部线程 封装成 waitNode 放入到 Condition 队列中了， waitNode.Thread 就是外部线程，会被park掉（处于WAITING状态）。
+     * 当线程池 状态 变为 Termination时，会去唤醒这些线程。通过 termination.signalAll() ，
+     * {@link ThreadPoolExecutor#tryTerminate()}唤醒之后这些线程会进入到 阻塞队列，然后头结点会去抢占mainLock。
+     * 抢占到的线程，会继续执行awaitTermination() 后面程序。这些线程最后，都会正常执行。
+     *
+     *
+     * 简单理解：
+     * termination.await() 会将线程阻塞在这。
+     * termination.signalAll() 会将阻塞在这的线程依次唤醒
+     *
+     * @see ThreadPoolExecutor#awaitTermination(long, java.util.concurrent.TimeUnit) 此方法会 termination.awaitNanos(nanos);
+     * @see ThreadPoolExecutor#tryTerminate() 该方法会 termination.signalAll();
      */
-    //当外部线程调用  awaitTermination() 方法时，外部线程会等待当前线程池状态为 Termination 为止。
-    //等待是如何实现的？ 就是将外部线程 封装成 waitNode 放入到 Condition 队列中了， waitNode.Thread 就是外部线程，会被park掉（处于WAITING状态）。
-    //当线程池 状态 变为 Termination时，会去唤醒这些线程。通过 termination.signalAll() ，唤醒之后这些线程会进入到 阻塞队列，然后头结点会去抢占mainLock。
-    //抢占到的线程，会继续执行awaitTermination() 后面程序。这些线程最后，都会正常执行。
-    //简单理解：termination.await() 会将线程阻塞在这。
-    //         termination.signalAll() 会将阻塞在这的线程依次唤醒
     private final Condition termination = mainLock.newCondition();
 
     /**
@@ -1992,8 +2004,23 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         return runStateAtLeast(ctl.get(), TERMINATED);
     }
 
-    public boolean awaitTermination(long timeout, TimeUnit unit)
-            throws InterruptedException {
+    /**
+     * 当外部线程调用  awaitTermination() {@link ThreadPoolExecutor#awaitTermination(long, java.util.concurrent.TimeUnit)}方法时，
+     * 外部线程会等待当前线程池状态为 Termination 为止。
+     * 等待是如何实现的？ 就是将外部线程 封装成 waitNode 放入到 Condition 队列中了， waitNode.Thread 就是外部线程，会被park掉（处于WAITING状态）。
+     * 当线程池 状态 变为 Termination时，会去唤醒这些线程。通过 termination.signalAll() ，
+     * {@link ThreadPoolExecutor#tryTerminate()}唤醒之后这些线程会进入到 阻塞队列，然后头结点会去抢占mainLock。
+     * 抢占到的线程，会继续执行awaitTermination() 后面程序。这些线程最后，都会正常执行。
+     *
+     *
+     * 简单理解：
+     * termination.await() 会将线程阻塞在这。
+     * termination.signalAll() 会将阻塞在这的线程依次唤醒
+     *
+     * @see ThreadPoolExecutor#tryTerminate()
+     * @see ThreadPoolExecutor#awaitTermination(long, java.util.concurrent.TimeUnit)
+     */
+    public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
         long nanos = unit.toNanos(timeout);
         final ReentrantLock mainLock = this.mainLock;
         mainLock.lock();
