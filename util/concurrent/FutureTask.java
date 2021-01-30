@@ -226,13 +226,16 @@ public class FutureTask<V> implements RunnableFuture<V> {
 
     /**
      * @throws CancellationException {@inheritDoc}
+     *
+     * 可能会有多个线程在 get() 都需要阻塞
+     *
+     * 场景：多个线程等待当前任务执行完成后的结果...
      */
-    //场景：多个线程等待当前任务执行完成后的结果...
     public V get() throws InterruptedException, ExecutionException {
         //获取当前任务状态
         int s = state;
         //条件成立：未执行、正在执行、正完成。 调用get的外部线程会被阻塞在get方法上。
-        if (s <= COMPLETING) {
+        if (s <= COMPLETING) {//只有 NEW 或者 COMPLETING
             //返回task当前状态，可能当前线程在里面已经睡了一会了..
             s = awaitDone(false, 0L);
         }
@@ -279,12 +282,14 @@ public class FutureTask<V> implements RunnableFuture<V> {
     protected void set(V v) {
         //使用CAS方式设置当前任务状态为 完成中..
         //有没有可能失败呢？ 外部线程等不及了，直接在set执行CAS之前 将  task取消了。  很小概率事件。
+        //还有就是当前任务执行发生了异常，此时 setException 已经把 state 改为了 COMPLETING, 所以当前是不会执行的
         if (UNSAFE.compareAndSwapInt(this, stateOffset, NEW, COMPLETING)) {
             outcome = v;
-            //将结果赋值给 outcome之后，马上会将当前任务状态修改为 NORMAL 正常结束状态。
+            //将结果赋值给 outcome 之后，马上会将当前任务状态修改为 NORMAL 正常结束状态。
+            //其实就是写入一个 int 类型的值
             UNSAFE.putOrderedInt(this, stateOffset, NORMAL); // final state
             //猜一猜？
-            //最起码得把get() 再此阻塞的线程 唤醒..
+            //最起码得把get() 在此阻塞的线程 唤醒..
             finishCompletion();
         }
     }
@@ -315,9 +320,10 @@ public class FutureTask<V> implements RunnableFuture<V> {
     //submit(runnable/callable) -> newTaskFor(runnable) -> execute(task)   -> pool
     //任务执行入口
     public void run() {
-        if (state != NEW//state != NEW 成立，说明当前task已经被执行过了 或者 被cancel 了，总之非NEW状态的任务，线程就不处理了。
+        if (state != NEW//如果 state != NEW 成立，说明当前task已经被执行过了 或者 被cancel 了，总之非NEW状态的任务，线程就不处理了。
                 ||
-                //条件成立：cas失败，当前任务被其它线程抢占了...
+                //条件成立：cas失败，当前任务被其它线程抢占了
+                //把当前对象中的 Thread runner 字段设置为当前线程，也就是当前线程在跟其他线程抢占该任务
                 !UNSAFE.compareAndSwapObject(this, runnerOffset, null, Thread.currentThread())) {
 
             //run的时候状态不是 NEW 或者 当前任务已经有线程在执行了，则当前线程直接返回
@@ -332,10 +338,11 @@ public class FutureTask<V> implements RunnableFuture<V> {
             Callable<V> c = callable;
             if (c != null //c != null 防止空指针异常
                     &&
+                    //虽然前面判断过了，但是可能被主线程取消了
                     //防止外部线程 cancel掉当前任务。
                     state == NEW) {
 
-                //结果引用
+                //结果引用，如果传入的 Runnable 则特殊点
                 V result;
 
                 //true 表示callable.run 代码块执行成功 未抛出异常
@@ -343,19 +350,19 @@ public class FutureTask<V> implements RunnableFuture<V> {
                 boolean ran;
 
                 try {
-                    //调用程序员自己实现的callable 或者 装饰后的runnable
+                    //调用程序员自己实现的 Callable 或者 装饰后的 Runnable
                     result = c.call();
                     //c.call未抛出任何异常，ran会设置为true 代码块执行成功
                     ran = true;
                 } catch (Throwable ex) {
-                    //说明程序员自己写的逻辑块有bug了。
+                    //说明程序员自己写的逻辑块有bug了。或者抛出了异常
                     result = null;
                     ran = false;
                     setException(ex);
                 }
 
                 if (ran) {
-                    //说明当前c.call正常执行结束了。
+                    //说明当前c.call执行结束了。
                     //set就是设置结果到outcome
                     set(result);
                 }
@@ -520,40 +527,47 @@ public class FutureTask<V> implements RunnableFuture<V> {
         final long deadline = timed ? System.nanoTime() + nanos : 0L;
         //引用当前线程 封装成 WaitNode 对象
         WaitNode q = null;
-        //表示当前线程 waitNode对象 有没有 入队/压栈
+        //表示当前线程 waitNode 对象 有没有 入栈
         boolean queued = false;
         //自旋
         for (; ; ) {
-            //条件成立：说明当前线程唤醒 是被其它线程使用中断这种方式喊醒的。interrupted()
-            //返回true 后会将 Thread的中断标记重置回false.
+
+            //条件成立：说明当前线程唤醒 是被其它线程使用中断这种方式喊醒的。
+            //interrupted() 返回true 后会将 Thread的中断标记重置回false.
             if (Thread.interrupted()) {
                 //当前线程node出队
                 removeWaiter(q);
                 //get方法抛出 中断异常。
                 throw new InterruptedException();
             }
+
             //假设当前线程是被其它线程 使用unpark(thread) 唤醒的话。会正常自旋，走下面逻辑。
 
             //获取当前任务最新状态
             int s = state;
+
             //条件成立：说明当前任务 已经有结果了.. 可能是好 可能是 坏..
             if (s > COMPLETING) {
                 //条件成立：说明已经为当前线程创建过node了，此时需要将 node.thread = null helpGC
                 if (q != null) {
+                    //TODO ？？？
                     q.thread = null;
                 }
                 //直接返回当前状态.
                 return s;
             }
+
             //条件成立：说明当前任务接近完成状态...这里让当前线程再释放cpu ，进行下一次抢占cpu。
             else if (s == COMPLETING) {
                 // cannot time out yet
                 Thread.yield();
             }
-            //条件成立：第一次自旋，当前线程还未创建 WaitNode 对象，此时为当前线程创建 WaitNode对象
+
             else if (q == null) {
+                //条件成立：第一次自旋，当前线程还未创建 WaitNode 对象，此时为当前线程创建 WaitNode对象
                 q = new WaitNode();
             }
+
             //条件成立：第二次自旋，当前线程已经创建 WaitNode对象了，但是node对象还未入队
             else if (!queued) {
                 //当前线程node节点 next 指向 原 队列的头节点   waiters 一直指向队列的头！
@@ -561,6 +575,7 @@ public class FutureTask<V> implements RunnableFuture<V> {
                 //cas方式设置waiters引用指向 当前线程node， 成功的话 queued == true 否则，可能其它线程先你一步入队了。
                 queued = UNSAFE.compareAndSwapObject(this, waitersOffset, waiters, q);
             }
+
             //第三次自旋，会到这里。
             else if (timed) {
                 nanos = deadline - System.nanoTime();
@@ -569,9 +584,13 @@ public class FutureTask<V> implements RunnableFuture<V> {
                     return state;
                 }
                 LockSupport.parkNanos(this, nanos);
-            } else {
+            }
+
+            //如果 timed = false
+            else {
                 //当前get操作的线程就会被park了。  线程状态会变为 WAITING状态，相当于休眠了..
                 //除非有其它线程将你唤醒  或者 将当前线程 中断。
+                //TODO 当前线程在此休眠，下次唤醒的时候还是从这里往后执行代码
                 LockSupport.park(this);
             }
         }
