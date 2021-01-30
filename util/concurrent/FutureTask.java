@@ -168,14 +168,16 @@ public class FutureTask<V> implements RunnableFuture<V> {
         //正常情况下，outcome 保存的是callable运行结束的结果
         //非正常，保存的是 callable 抛出的异常。
         Object x = outcome;
+
         //条件成立：当前任务状态正常结束
         if (s == NORMAL) {
-            //直接返回callable运算结果
 
+            //直接返回callable运算结果
             return (V) x;
         }
 
         //被取消状态
+        //虽然中断状态也是满足条件的，但是中断的时候是直接抛出了中断异常，不会指向该方法，而是在get的时候直接就抛出去了
         if (s >= CANCELLED) {
             throw new CancellationException();
         }
@@ -192,6 +194,10 @@ public class FutureTask<V> implements RunnableFuture<V> {
         return state != NEW;
     }
 
+    /**
+     * @param mayInterruptIfRunning true 则发送一个中断信号
+     * @return
+     */
     public boolean cancel(boolean mayInterruptIfRunning) {
         if (!(state == NEW//条件一：state == NEW 成立 表示当前任务处于运行中 或者 处于线程池 任务队列中..
                 &&
@@ -202,13 +208,14 @@ public class FutureTask<V> implements RunnableFuture<V> {
 
         try {
             // in case call to interrupt throws exception(万一中断调用引发异常)
-            if (mayInterruptIfRunning) {
+            if (mayInterruptIfRunning) {//若为true，表示要发送一个中断信号
                 try {
-                    //执行当前FutureTask 的线程，有可能现在是null，是null 的情况是： 当前任务在 队列中，还没有线程获取到它呢。。
+                    //执行当前 FutureTask 的线程，有可能现在是null，是null 的情况是： 当前任务在 队列中，还没有线程获取到它呢。。
                     Thread t = runner;
                     //条件成立：说明当前线程 runner ，正在执行task.
                     if (t != null) {
-                        //给runner线程一个中断信号.. 如果你的程序是响应中断 会走中断逻辑..假设你程序不是响应中断的..啥也不会发生。
+                        //给runner线程一个中断信号.. 如果你的程序是响应中断的
+                        //会走中断逻辑..假设你程序不是响应中断的..啥也不会发生。
                         t.interrupt();
                     }
                 } finally { // final state
@@ -216,7 +223,6 @@ public class FutureTask<V> implements RunnableFuture<V> {
                     UNSAFE.putOrderedInt(this, stateOffset, INTERRUPTED);
                 }
             }
-
         } finally {
             //唤醒所有get() 阻塞的线程。
             finishCompletion();
@@ -488,8 +494,13 @@ public class FutureTask<V> implements RunnableFuture<V> {
 
                         q.thread = null;//help GC
                         //唤醒当前节点对应的线程
+
+                        /**
+                         * @see FutureTask#awaitDone(boolean, long)
+                         */
                         LockSupport.unpark(t);
                     }
+
                     //next 当前节点的下一个节点
                     WaitNode next = q.next;
 
@@ -561,9 +572,7 @@ public class FutureTask<V> implements RunnableFuture<V> {
             else if (s == COMPLETING) {
                 // cannot time out yet
                 Thread.yield();
-            }
-
-            else if (q == null) {
+            } else if (q == null) {
                 //条件成立：第一次自旋，当前线程还未创建 WaitNode 对象，此时为当前线程创建 WaitNode对象
                 q = new WaitNode();
             }
@@ -608,20 +617,45 @@ public class FutureTask<V> implements RunnableFuture<V> {
      *
      * 尝试取消链接超时或中断的等待节点，以避免积累垃圾。内部节点在没有CAS的情况下根本不会被拼接，因为如果释放者无论如何遍历它们，都是无害的。
      * 为了避免从已删除的节点取消拆分的影响，在出现明显竞争的情况下会重新遍历该列表。当节点很多时，这很慢，但是我们不希望列表足够长以超过开销更高的方案。
+     *
+     * 从栈中移除节点 node
+     *
+     * a -> b -> c -> d -> e
+     * *
+     * 该方法做的事情是：
+     * 1.给定一个要删除的节点 node
+     * 2.删除给定的节点node
+     * 3.删除 waiters 栈中所有的 thread 为null的节点
+     * 4.并且重新赋值 waiters
+     * TODO 但是具体的实现没有看明白！！！！！
      */
     private void removeWaiter(WaitNode node) {
         if (node != null) {
+
+            //先把节点的 thread 属性设置为 null
             node.thread = null;
             retry:
-            for (; ; ) {          // restart on removeWaiter race
-                for (WaitNode pred = null, q = waiters, s; q != null; q = s) {
+            for (; ; ) {// restart on removeWaiter race 重新启动removeWaiter竞赛
+                for (
+                    //当前节点的上一个
+                        WaitNode pred = null,
+                        //当前节点
+                        q = waiters,
+                        //s = q.next;当前节点的下一个节点
+                        s;
+                    //循环结束条件，当前节点不为null
+                        q != null;
+                    //下次循环的起点，把当前节点指向下一个节点
+                        q = s) {
+
+                    //赋值为当前节点的下一个节点
                     s = q.next;
                     if (q.thread != null) {
                         pred = q;
                     } else if (pred != null) {
                         pred.next = s;
-                        if (pred.thread == null) // check for race
-                        {
+                        if (pred.thread == null) {
+                            // check for race
                             continue retry;
                         }
                     } else if (!UNSAFE.compareAndSwapObject(this, waitersOffset, q, s)) {
