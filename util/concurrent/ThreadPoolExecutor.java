@@ -1142,11 +1142,14 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * or when the queue is full (in which case we must bypass queue).
      * Initially idle threads are usually created via
      * prestartCoreThread or to replace other dying workers.
-     * @param core if true use corePoolSize as bound, else
+     * @param core if true use corePoolSize as bound, else  如果为true，请使用corePoolSize作为限制，否则 maximumPoolSize
      * maximumPoolSize. (A boolean indicator is used here rather than a
      * value to ensure reads of fresh values after checking other pool
      * state).
      * @return true if successful
+     *
+     * //addWorker 即为创建线程的过程，会创建worker对象，并且将command作为firstTask
+     * //core == true 表示采用核心线程数量限制  false表示采用 maximumPoolSize
      */
     //firstTask 可以为null，表示启动worker之后，worker自动到queue中获取任务.. 如果不是null，则worker优先执行firstTask
     //core 采用的线程数限制 如果为true 采用 核心线程数限制  false采用 maximumPoolSize线程数限制.
@@ -1803,7 +1806,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         //判断参数是否越界
         if (corePoolSize < 0 ||
                 maximumPoolSize <= 0 ||
-                maximumPoolSize < corePoolSize ||
+                maximumPoolSize < corePoolSize || //但是是可以相等的
                 keepAliveTime < 0) {
             throw new IllegalArgumentException();
         }
@@ -1833,7 +1836,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * executor has been shutdown or because its capacity has been reached,
      * the task is handled by the current {@code RejectedExecutionHandler}.
      *
-     * @param command the task to execute
+     * @param command the task to execute 要执行的任务，可以是普通的Runnable 实现类，也可以是 FutureTask
      * @throws RejectedExecutionException at discretion of
      * {@code RejectedExecutionHandler}, if the task
      * cannot be accepted for execution
@@ -1865,25 +1868,26 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          * thread.  If it fails, we know we are shut down or saturated
          * and so reject the task.
          */
-        //获取ctl最新值赋值给c，ctl ：高3位 表示线程池状态，低位表示当前线程池线程数量。
+        //获取ctl最新值赋值给c，ctl ：高3位 表示线程池状态，低29位表示当前线程池线程数量。
         int c = ctl.get();
-        //workerCountOf(c) 获取出当前线程数量
-        //条件成立：表示当前线程数量小于核心线程数，此次提交任务，直接创建一个新的worker，对应线程池中多了一个新的线程。
-        if (workerCountOf(c) < corePoolSize) {
+
+        //workerCountOf(c)：获取出当前线程数量
+        if (workerCountOf(c) < corePoolSize) {//条件成立：表示当前线程数量小于核心线程数，此次提交任务，直接创建一个新的worker，对应线程池中多了一个新的线程。
             //addWorker 即为创建线程的过程，会创建worker对象，并且将command作为firstTask
             //core == true 表示采用核心线程数量限制  false表示采用 maximumPoolSize
-            if (addWorker(command, true))
-            //创建成功后，直接返回。addWorker方法里面会启动新创建的worker，将firstTask执行。
-            {
+            if (addWorker(command, true)) {
+                //创建成功后，直接返回。addWorker方法里面会启动新创建的worker，将firstTask执行。
                 return;
             }
 
             //执行到这条语句，说明addWorker一定是失败了...
             //有几种可能呢？？
+
             //1.存在并发现象，execute方法是可能有多个线程同时调用的，当workerCountOf(c) < corePoolSize成立后，
-            //其它线程可能也成立了，并且向线程池中创建了worker。这个时候线程池中的核心线程数已经达到，所以...
+            //其它线程可能也成立了，并且向线程池中创建了worker。这个时候线程池中的核心线程数已经达到最大限制，所以失败了...
+
             //2.当前线程池状态发生改变了。 RUNNING SHUTDOWN STOP TIDYING　TERMINATION
-            //当线程池状态是非RUNNING状态时，addWorker(firstTask!=null, true|false) 一定会失败。
+            //当线程池状态是 非RUNNING 状态时，addWorker(firstTask!=null, true|false) 一定会失败。
             //SHUTDOWN 状态下，也有可能创建成功。前提 firstTask == null 而且当前 queue  不为空。特殊情况。
             c = ctl.get();
         }
@@ -1895,18 +1899,21 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         //条件成立：说明当前线程池处于running状态，则尝试将 task 放入到workQueue中。
         if (isRunning(c) && workQueue.offer(command)) {
             //执行到这里，说明offer提交任务成功了..
+            //当前线程是 RUNNING 状态，并且任务入队成功
 
             //再次获取ctl保存到recheck。
             int recheck = ctl.get();
 
-            //条件一：! isRunning(recheck) 成立：说明你提交到队列之后，线程池状态被外部线程给修改 比如：shutdown() shutdownNow()
-            //这种情况 需要把刚刚提交的任务删除掉。
-            //条件二：remove(command) 有可能成功，也有可能失败
-            //成功：提交之后，线程池中的线程还未消费（处理）
-            //失败：提交之后，在shutdown() shutdownNow()之前，就被线程池中的线程 给处理。
-            if (!isRunning(recheck) && remove(command))
-            //提交之后线程池状态为 非running 且 任务出队成功，走个拒绝策略。
-            {
+            if (
+                //条件一：! isRunning(recheck) 成立：说明你提交到队列之后，线程池状态被外部线程给修改 比如：shutdown() shutdownNow()
+                //这种情况 需要把刚刚提交的任务删除掉。
+                    !isRunning(recheck)
+                            &&
+                            //条件二：remove(command) 有可能成功，也有可能失败
+                            //成功：提交之后，线程池中的线程还未消费（处理）
+                            //失败：提交之后，在shutdown() shutdownNow()之前，就被线程池中的线程 给处理了。
+                            remove(command)) {
+                //提交之后线程池状态为 非running 且 任务出队（删除）成功，走个拒绝策略。
                 reject(command);
             }
 
@@ -1932,7 +1939,6 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         else if (!addWorker(command, false)) {
             reject(command);
         }
-
     }
 
     /**
