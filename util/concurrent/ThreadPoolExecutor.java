@@ -1351,6 +1351,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * - decrements worker count
      * - rechecks for termination, in case the existence of this
      * worker was holding up termination
+     *
+     * 当 addWork 方法失败的时候会调用
+     *
+     * @see ThreadPoolExecutor#addWorker(java.lang.Runnable, boolean)
      */
     private void addWorkerFailed(Worker w) {
         final ReentrantLock mainLock = this.mainLock;
