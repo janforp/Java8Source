@@ -784,7 +784,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          * 当worker启动时，会执行run()
          * Delegates main run loop to outer runWorker
          *
+         * 线程启动之后会调用该方法
+         *
          * @see Worker#Worker(java.lang.Runnable) 因为创建的时候传的就是当前对象
+         * @see Thread#run()
          */
         public void run() {
             //ThreadPoolExecutor->runWorker() 这个是核心方法，等后面分析worker启动后逻辑时会以这里切入。
@@ -1391,8 +1394,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     private void processWorkerExit(Worker w, boolean completedAbruptly) {
         //条件成立：代表当前w 这个worker是发生异常退出的，task任务执行过程中向上抛出异常了..
         //异常退出时，ctl计数，并没有-1
-        if (completedAbruptly) // If abrupt, then workerCount wasn't adjusted
-        {
+        if (completedAbruptly) {
+            // If abrupt, then workerCount wasn't adjusted
             decrementWorkerCount();
         }
 
@@ -1560,7 +1563,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
     /**
      * Main worker run loop.  Repeatedly gets tasks from queue and
-     * executes them, while coping with a number of issues:
+     * executes them, while coping with a number of issues:(主工作者运行循环。反复从队列中获取任务并执行它们，同时解决许多问题：)
      *
      * 1. We may start out with an initial task, in which case we
      * don't need to get the first one. Otherwise, as long as pool is
@@ -1570,15 +1573,26 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * external code, in which case completedAbruptly holds, which
      * usually leads processWorkerExit to replace this thread.
      *
+     * 1.我们可以从最初的任务开始，在这种情况下，我们不需要获得第一个任务。
+     * 否则，只要池正在运行，我们就会从getTask获得任务。
+     * 如果返回null，则工作器由于池状态或配置参数更改而退出。
+     * 其他退出是由外部代码中的异常引发导致的，在这种情况下，completedAbruptly成立，这通常导致processWorkerExit替换此线程。
+     *
      * 2. Before running any task, the lock is acquired to prevent
      * other pool interrupts while the task is executing, and then we
      * ensure that unless pool is stopping, this thread does not have
      * its interrupt set.
      *
+     * 2.在运行任何任务之前，先获取锁，以防止任务执行时其他池中断，
+     * 然后确保除非池正在停止，否则此线程不会设置其中断。
+     *
      * 3. Each task run is preceded by a call to beforeExecute, which
      * might throw an exception, in which case we cause thread to die
      * (breaking loop with completedAbruptly true) without processing
      * the task.
+     *
+     * 3.每个任务运行之前都会调用beforeExecute，这可能会引发异常，在这种情况下，
+     * 我们将导致线程死掉（中断带有completelyAbruptly true的循环）而不处理该任务。
      *
      * 4. Assuming beforeExecute completes normally, we run the task,
      * gathering any of its thrown exceptions to send to afterExecute.
@@ -1589,15 +1603,25 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * UncaughtExceptionHandler).  Any thrown exception also
      * conservatively causes thread to die.
      *
+     * 4.假设beforeExecute正常完成，我们运行任务，收集其引发的任何异常以发送给afterExecute。
+     * 我们分别处理RuntimeException，Error（规范保证我们可以捕获它们）和任意Throwables。
+     * 因为我们不能在Throwables.run中抛出Throwables，所以我们将它们包装在Errors中（输出到线程的UncaughtExceptionHandler）。
+     * 任何抛出的异常也会保守地导致线程死亡。
+     *
      * 5. After task.run completes, we call afterExecute, which may
      * also throw an exception, which will also cause thread to
      * die. According to JLS Sec 14.20, this exception is the one that
      * will be in effect even if task.run throws.
      *
+     * 5. task.run完成后，我们调用afterExecute，这也可能引发异常，这也将导致线程死亡。
+     * 根据JLS Sec 14.20，此异常是即使task.run抛出也会生效的异常。
+     *
      * The net effect of the exception mechanics is that afterExecute
      * and the thread's UncaughtExceptionHandler have as accurate
      * information as we can provide about any problems encountered by
      * user code.
+     *
+     * 异常机制的最终结果是afterExecute和线程的UncaughtExceptionHandler具有与我们所能提供的有关用户代码遇到的任何问题的准确信息。
      *
      * @param w the worker
      */
@@ -1612,15 +1636,20 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         //这里为什么先调用unlock? 就是为了初始化worker state == 0 和 exclusiveOwnerThread ==null
         w.unlock(); // allow interrupts
 
-        //是否是突然退出，true->发生异常了，当前线程是突然退出，回头需要做一些处理
+        //是否是突然退出，
+        //true->发生异常了，当前线程是突然退出，回头需要做一些处理
         //false->正常退出。
         boolean completedAbruptly = true;
 
         try {
-            //条件一：task != null 指的就是firstTask是不是null，如果不是null，直接执行循环体里面。
-            //条件二：(task = getTask()) != null   条件成立：说明当前线程在queue中获取任务成功，getTask这个方法是一个会阻塞线程的方法
-            //getTask如果返回null，当前线程需要执行结束逻辑。
-            while (task != null || (task = getTask()) != null) {
+            while (
+                //条件一：task != null 指的就是firstTask是不是null，如果不是null，直接执行循环体里面。
+                    task != null
+                            ||
+                            //条件二：(task = getTask()) != null
+                            //条件成立：说明当前线程在queue中获取任务成功，getTask这个方法是一个会阻塞线程的方法
+                            //getTask如果返回null，当前线程需要执行结束逻辑。
+                            (task = getTask()) != null) {
                 //worker设置独占锁 为当前线程
                 //为什么要设置独占锁呢？shutdown时会判断当前worker状态，根据独占锁是否空闲来判断当前worker是否正在工作。
                 w.lock();
@@ -1628,6 +1657,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 // if not, ensure thread is not interrupted.  This
                 // requires a recheck in second case to deal with
                 // shutdownNow race while clearing interrupt
+                // 如果池正在停止，请确保线程被中断；如果没有，请确保线程不被中断。这需要在第二种情况下重新检查以处理shutdownNow竞赛，同时清除中断
 
                 //条件一：runStateAtLeast(ctl.get(), STOP)  说明线程池目前处于STOP/TIDYING/TERMINATION 此时线程一定要给它一个中断信号
                 //条件一成立：runStateAtLeast(ctl.get(), STOP)&& !wt.isInterrupted()
@@ -1643,9 +1673,14 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 //这种情况有发生几率么？
                 //有可能，因为外部线程在 第一次 (runStateAtLeast(ctl.get(), STOP) == false 后，有机会调用shutdown 、shutdownNow方法，将线程池状态修改
                 //这个时候，也会将当前线程的中断标记位 再次设置回 中断状态。
-                if ((runStateAtLeast(ctl.get(), STOP) || (Thread.interrupted() && runStateAtLeast(ctl.get(), STOP)))
-                        &&
-                        !wt.isInterrupted()) {
+                if (
+                        (runStateAtLeast(ctl.get(), STOP)
+                                ||
+                                (Thread.interrupted() && runStateAtLeast(ctl.get(), STOP)))
+
+                                &&
+                                !wt.isInterrupted()
+                ) {
                     wt.interrupt();
                 }
 
