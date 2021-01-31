@@ -890,27 +890,36 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     }
 
     /**
-     * Transitions to TERMINATED state if either (SHUTDOWN and pool
+     * Transitions to（过渡到） TERMINATED state if either (SHUTDOWN and pool
      * and queue empty) or (STOP and pool empty).  If otherwise
-     * eligible to terminate but workerCount is nonzero, interrupts an
-     * idle worker to ensure that shutdown signals propagate. This
+     * eligible（合格） to terminate but workerCount is nonzero, interrupts an
+     * idle worker to ensure that shutdown signals propagate（传播）. This
      * method must be called following any action that might make
      * termination possible -- reducing worker count or removing tasks
      * from the queue during shutdown. The method is non-private to
      * allow access from ScheduledThreadPoolExecutor.
+     *
+     * 如果（SHUTDOWN和池和队列为空）或（STOP和池为空），则转换为TERMINATED状态。
+     * 如果可以终止，但workerCount非零，则中断空闲的worker，以确保关闭信号传播。
+     * 必须在可能终止操作的任何操作之后调用此方法-减少工作人员计数或在关闭过程中从队列中删除任务。
+     * 该方法是非私有的，以允许从ScheduledThreadPoolExecutor访问。
      */
     final void tryTerminate() {
         //自旋
         for (; ; ) {
             //获取最新ctl值
             int c = ctl.get();
-            //条件一：isRunning(c)  成立，直接返回就行，线程池很正常！
-            //条件二：runStateAtLeast(c, TIDYING) 说明 已经有其它线程 在执行 TIDYING -> TERMINATED状态了,当前线程直接回去。
-            //条件三：(runStateOf(c) == SHUTDOWN && ! workQueue.isEmpty())
-            //SHUTDOWN特殊情况，如果是这种情况，直接回去。得等队列中的任务处理完毕后，再转化状态。
-            if (isRunning(c) ||
-                    runStateAtLeast(c, TIDYING) ||
-                    (runStateOf(c) == SHUTDOWN && !workQueue.isEmpty())) {
+            if (
+                //条件一：isRunning(c)  成立，直接返回就行，线程池很正常！
+                    isRunning(c)
+                            ||
+                            //条件二：runStateAtLeast(c, TIDYING) 当前状态 >= TIDYING
+                            //说明 已经有其它线程 在执行 TIDYING -> TERMINATED状态了,当前线程直接回去。
+                            runStateAtLeast(c, TIDYING)
+                            ||
+                            //条件三：(runStateOf(c) == SHUTDOWN && ! workQueue.isEmpty())
+                            //SHUTDOWN特殊情况，如果是这种情况，直接回去。得等队列中的任务处理完毕后，再转化状态。
+                            (runStateOf(c) == SHUTDOWN && !workQueue.isEmpty())) {
                 return;
             }
 
@@ -919,7 +928,9 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             //2.线程池状态为 SHUTDOWN 且 队列已经空了
 
             //条件成立：当前线程池中的线程数量 > 0
-            if (workerCountOf(c) != 0) { // Eligible to terminate
+            if (workerCountOf(c) != 0) { // Eligible to terminate - 有资格终止
+                //当前线程池中的线程数量 > 0
+
                 //中断一个空闲线程。
                 //空闲线程，在哪空闲呢？ queue.take() | queue.poll()
                 //1.唤醒后的线程 会在getTask()方法返回null
@@ -930,7 +941,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 return;
             }
 
-            //执行到这里的线程是谁？
+            //执行到这里的线程是谁？---- 最后一个线程！！！！！
             //workerCountOf(c) == 0 时，会来到这里。
             //最后一个退出的线程。 咱们知道，在 （线程池状态 >= STOP || 线程池状态为 SHUTDOWN 且 队列已经空了）
             //线程唤醒后，都会执行退出逻辑，退出过程中 会 先将 workerCount计数 -1 => ctl -1。
@@ -958,7 +969,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 mainLock.unlock();
             }
             // else retry on failed CAS
-        }
+        }//自旋结束
     }
 
     /*
