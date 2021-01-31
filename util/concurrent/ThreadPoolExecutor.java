@@ -1837,18 +1837,25 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * the task is handled by the current {@code RejectedExecutionHandler}.
      *
      * @param command the task to execute 要执行的任务，可以是普通的Runnable 实现类，也可以是 FutureTask
-     * @throws RejectedExecutionException at discretion of
-     * {@code RejectedExecutionHandler}, if the task
-     * cannot be accepted for execution
+     * @throws RejectedExecutionException at discretion of {@code RejectedExecutionHandler}, if the task cannot be accepted for execution
      * @throws NullPointerException if {@code command} is null
      */
-    //command 可以是普通的Runnable 实现类，也可以是 FutureTask
     public void execute(Runnable command) {
         //非空判断..
         if (command == null) {
             throw new NullPointerException();
         }
-        /*
+        /**
+         * 分3个步骤进行：
+         *
+         * 1.如果正在运行的线程少于corePoolSize个数，尝试使用给定命令作为其第一个任务来启动新线程。
+         *   对addWorker的调用从原子上检查runState和workerCount，从而通过返回false来防止在不应该添加线程的情况下发出虚假警报。
+         *
+         * 2.如果任务可以成功排队，那么我们仍然需要仔细检查是否应该添加线程（因为现有线程自上次检查后就死掉了）
+         *   或自从进入此方法以后该池已关闭。因此，我们重新检查状态，并在必要时回滚队列（如果已停止），或者在没有线程的情况下启动新线程。
+         *
+         * 3.如果我们无法将任务排队，则尝试添加一个新线程。如果失败，我们知道我们已关闭或已饱和，因此拒绝该任务。
+         *
          * Proceed in 3 steps:
          *
          * 1. If fewer than corePoolSize threads are running, try to
@@ -1865,9 +1872,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          * stopped, or start a new thread if there are none.
          *
          * 3. If we cannot queue task, then we try to add a new
-         * thread.  If it fails, we know we are shut down or saturated
+         * thread.  If it fails, we know we are shut down or saturated（达到了最大线程数量）
          * and so reject the task.
          */
+
         //获取ctl最新值赋值给c，ctl ：高3位 表示线程池状态，低29位表示当前线程池线程数量。
         int c = ctl.get();
 
