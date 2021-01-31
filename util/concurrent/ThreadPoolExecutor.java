@@ -959,7 +959,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     } finally {
                         //设置线程池状态为TERMINATED状态。
                         ctl.set(ctlOf(TERMINATED, 0));
-                        //唤醒调用 awaitTermination() 方法的线程。
+                        /**
+                         * 唤醒调用 awaitTermination() 方法的线程。
+                         * @see ThreadPoolExecutor#awaitTermination(long, java.util.concurrent.TimeUnit)
+                         */
                         termination.signalAll();
                     }
                     return;
