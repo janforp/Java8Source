@@ -1171,7 +1171,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     //4.threadFactory 创建的线程是null
     private boolean addWorker(Runnable firstTask, boolean core) {
         retry:
-        //自旋 判断当前线程池状态是否允许创建线程的事情。
+        //自旋
+        //判断当前线程池状态是否允许创建线程的事情。只有外层循环满足才能进入内层循环
         for (; ; ) {
             //获取当前ctl值保存到c
             int c = ctl.get();
@@ -1181,7 +1182,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             // Check if queue empty only if necessary.(仅在必要时检查队列是否为空。)
 
             if (
-                    rs >= SHUTDOWN//rs >= SHUTDOWN 成立：说明当前线程池状态不是running状态
+                //rs >= SHUTDOWN 成立：说明当前线程池状态不是running状态
+                    rs >= SHUTDOWN//可能是：SHUTDOWN,STOP,DIYING,TERMINATED
                             &&
                             //前提：当前状态不是RUNNING
                             //如果该条件返回为ture，则表示：
@@ -1189,18 +1191,22 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
                             //条件二：前置条件，当前的线程池状态不是running状态  ! (rs == SHUTDOWN && firstTask == null && ! workQueue.isEmpty())
                             //rs == SHUTDOWN && firstTask == null && ! workQueue.isEmpty()
-                            //表示：当前线程池状态是SHUTDOWN状态 & 提交的任务是空，addWorker这个方法可能不是execute调用的。 & 当前任务队列不是空
                             //排除掉这种情况，当前线程池是SHUTDOWN状态，但是队列里面还有任务尚未处理完，这个时候是允许添加worker，但是不允许再次提交task。
-                            !(rs == SHUTDOWN && firstTask == null && !workQueue.isEmpty())) {
+                            !(rs == SHUTDOWN //当前线程池状态是SHUTDOWN状态
+                                    && firstTask == null //提交的任务是空，addWorker这个方法可能不是execute调用的
+                                    && !workQueue.isEmpty())//当前任务队列不是空
+            ) {
+
                 //什么情况下回返回false?
-                //线程池状态 rs > SHUTDOWN
-                //rs == SHUTDOWN 但是队列中已经没有任务了 或者 rs == SHUTDOWN 且 firstTask != null
+                //rs > SHUTDOWN
+                //或者 rs == SHUTDOWN 但是队列中已经没有任务了
+                //或者 rs == SHUTDOWN 且 firstTask != null
                 return false;
             }
-
             //上面这些代码，就是判断 当前线程池状态 是否允许添加线程。
 
-            //内部自旋 获取创建线程令牌的过程。
+            //内部自旋
+            //获取创建线程令牌的过程。
             for (; ; ) {
                 //获取当前线程池中线程数量 保存到wc中
                 int wc = workerCountOf(c);
@@ -1210,25 +1216,27 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                         //core == true ,判断当前线程数量是否>=corePoolSize，会拿核心线程数量做限制。
                         //core == false,判断当前线程数量是否>=maximumPoolSize，会拿最大线程数量做限制。
                         wc >= (core ? corePoolSize : maximumPoolSize)) {
+
                     //执行到这里，说明当前无法添加线程了，已经达到指定限制了
                     return false;
                 }
 
                 //条件成立：说明记录线程数量已经加1成功，相当于申请到了一块令牌。
                 //条件失败：说明可能有其它线程，修改过ctl这个值了。
-                //可能发生过什么事？
+                //失败的时候可能发生过什么事？
                 //1.其它线程execute() 申请过令牌了，在这之前。导致CAS失败
-                //2.外部线程可能调用过 shutdown() 或者 shutdownNow() 导致线程池状态发生变化了，咱们知道 ctl 高3位表示状态
-                //状态改变后，cas也会失败。
+                //2.外部线程可能调用过 shutdown() 或者 shutdownNow() 导致线程池状态发生变化了，咱们知道 ctl 高3位表示状态，状态改变后，cas也会失败（因为期望值变化了）。
                 if (compareAndIncrementWorkerCount(c)) {
                     //进入到这里面，一定是cas成功啦！申请到令牌了
                     //直接跳出了 retry 外部这个for自旋。
+
+                    //条件成立：说明记录线程数量已经加1成功，相当于申请到了一块令牌。
                     break retry;
                 }
 
-                //CAS失败，没有成功的申请到令牌
+                //CAS失败，没有成功的申请到令牌（ctl低29位计数+1失败）
                 //获取最新的ctl值
-                c = ctl.get();  // Re-read ctl
+                c = ctl.get();  // Re-read ctl(重读ctl)
                 //判断当前线程池状态是否发生过变化,如果外部在这之前调用过shutdown. shutdownNow 会导致状态变化。
                 if (runStateOf(c) != rs) {
                     //状态发生变化后，直接返回到外层循环，外层循环负责判断当前线程池状态，是否允许创建线程。
@@ -1241,13 +1249,14 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
         //表示创建的worker是否已经启动，false未启动  true启动
         boolean workerStarted = false;
-        //表示创建的worker是否添加到池子中了 默认false 未添加 true是添加。
+        //表示创建的worker是否添加到池子（HashSet<Worker>）中了 默认false 未添加 true是添加。
         boolean workerAdded = false;
 
         //w表示后面创建worker的一个引用。
         Worker w = null;
         try {
-            //创建Worker，执行完后，线程应该是已经创建好了。
+            //创建Worker
+            //执行完后，线程应该是已经创建好了。(通过线程工厂)
             w = new Worker(firstTask);
 
             //将新创建的worker节点的线程 赋值给 t
@@ -1260,7 +1269,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             if (t != null) {
                 //将全局锁的引用保存到mainLock
                 final ReentrantLock mainLock = this.mainLock;
-                //持有全局锁，可能会阻塞，直到获取成功为止，同一时刻 操纵 线程池内部相关的操作，都必须持锁。
+                //获取全局锁，如果其他线程占用了锁，则会阻塞
+                //直到获取成功为止，同一时刻 操纵 线程池内部相关的操作，都必须持锁。
                 mainLock.lock();
                 //从这里加锁之后，其它线程 是无法修改当前线程池状态的。
                 try {
@@ -1272,13 +1282,14 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
                     if (
                         //条件一：rs < SHUTDOWN 成立：最正常状态，当前线程池为RUNNING状态.
-                            rs < SHUTDOWN
+                            rs < SHUTDOWN //只有RUNNING才能满足
                                     ||
                                     //条件二：前置条件：当前线程池状态不是RUNNING状态。
                                     //(rs == SHUTDOWN && firstTask == null)  当前状态为SHUTDOWN状态且firstTask为空。
                                     //其实判断的就是SHUTDOWN状态下的特殊情况，
                                     //只不过这里不再判断队列是否为空了
                                     (rs == SHUTDOWN && firstTask == null)) {//言下之意就是当线程池是shutdown状态的时候，并且firstTask是null的时候也可以创建线程
+
                         //t.isAlive() 当线程start后，线程isAlive会返回true。
                         //防止脑子发热的程序员，ThreadFactory创建线程返回给外部之前，将线程start了。。
                         if (t.isAlive()) {
@@ -1292,9 +1303,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                         int s = workers.size();
                         //条件成立：说明当前线程数量是一个新高。更新largestPoolSize
                         if (s > largestPoolSize) {
+                            //更新一个统计值
                             largestPoolSize = s;
                         }
                         //表示线程已经追加进线程池中了。
+                        //workers.add(w) 就是added
                         workerAdded = true;
                     }
                 } finally {
@@ -1320,6 +1333,15 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             }
         }
         //返回新创建的线程是否启动。
+
+        //返回值总结：
+        //true 表示创建worker成功，且线程启动
+
+        //false 表示创建失败。
+        //1.线程池状态rs > SHUTDOWN (STOP/TIDYING/TERMINATION)
+        //2.rs == SHUTDOWN 但是队列中已经没有任务了 或者 当前状态是SHUTDOWN且队列未空，但是firstTask不为null
+        //3.当前线程池已经达到指定指标（corePoolSize 或者 maximumPoolSIze）
+        //4.threadFactory 创建的线程是null
         return workerStarted;
     }
 
