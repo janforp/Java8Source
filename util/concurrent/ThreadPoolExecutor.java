@@ -1476,6 +1476,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     //4.线程池中的线程数超过corePoolSize时，会有一部分线程 超时后，返回null。
     private Runnable getTask() {
         //表示当前线程获取任务是否超时 默认false true表示已超时
+        //上一次循环可能返回true,导致下一次循环的时候发生不同的逻辑
         boolean timedOut = false; // Did the last poll() time out?
 
         //自旋
@@ -1486,12 +1487,27 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             int rs = runStateOf(c);
 
             // Check if queue empty only if necessary.
-            //条件一：rs >= SHUTDOWN 条件成立：说明当前线程池是非RUNNING状态，可能是 SHUTDOWN/STOP....
-            //条件二：(rs >= STOP || workQueue.isEmpty())
-            //2.1:rs >= STOP 成立说明：当前的状态最低也是STOP状态，一定要返回null了
-            //2.2：前置条件 状态是 SHUTDOWN ，workQueue.isEmpty()条件成立：说明当前线程池状态为SHUTDOWN状态 且 任务队列已空，此时一定返回null。
-            //返回null，runWorker方法就会将返回Null的线程执行线程退出线程池的逻辑。
-            if (rs >= SHUTDOWN && (rs >= STOP || workQueue.isEmpty())) {
+
+            if (
+                //条件一：rs >= SHUTDOWN 条件成立：说明当前线程池是非RUNNING状态，可能是 SHUTDOWN/STOP....
+                    rs >= SHUTDOWN
+                            &&
+                            //条件二：(rs >= STOP || workQueue.isEmpty())
+                            (
+                                    //2.1:rs >= STOP 成立说明：当前的状态最低也是STOP状态，一定要返回null了（不返回具体的任务了）
+                                    rs >= STOP
+                                            ||
+                                            //2.2：前置条件 状态是 SHUTDOWN
+                                            //条件成立：说明当前线程池状态为SHUTDOWN状态 且 任务队列已空，此时一定返回null。
+                                            workQueue.isEmpty())) {
+
+                /**
+                 * TODO 返回null，runWorker方法就会将返回Null的线程执行线程退出线程池的逻辑。???????
+                 * @see ThreadPoolExecutor#processWorkerExit(util.concurrent.ThreadPoolExecutor.Worker, boolean)
+                 *
+                 * 在满足上述条件的时候，获取不到task就会退出一个线程
+                 */
+
                 //使用CAS+死循环的方式让 ctl值 -1
                 decrementWorkerCount();
                 return null;
@@ -1499,35 +1515,40 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
             //执行到这里，有几种情况？
             //1.线程池是RUNNING状态
-            //2.线程池是SHUTDOWN状态 但是队列还未空，此时可以创建线程。
+            //2.线程池是SHUTDOWN状态 但是队列还未空，此时可以创建线程。!!!!!!!!!!!
 
             //获取线程池中的线程数量
             int wc = workerCountOf(c);
 
-            // Are workers subject to culling?
-            //timed == true 表示当前这个线程 获取 task 时 是支持超时机制的，使用queue.poll(xxx,xxx); 当获取task超时的情况下，下一次自旋就可能返回null了。
-            //timed == false 表示当前这个线程 获取 task 时 是不支持超时机制的，当前线程会使用 queue.take();
+            // Are workers subject to culling(淘汰)?
+            //timed == true 表示当前这个线程 获取 task 时 是支持超时机制的，使用queue.poll(xxx,xxx)阻塞一段时间; 当获取task超时的情况下，下一次自旋就可能返回null了。
+            //timed == false 表示当前这个线程 获取 task 时 是不支持超时机制的，当前线程会使用 queue.take();一直阻塞
+            boolean timed =
+                    //情况1：allowCoreThreadTimeOut == true 表示核心线程数量内的线程 也可以被回收。所有线程 都是使用queue.poll(xxx,xxx) 超时机制这种方式获取task.
+                    //情况2：allowCoreThreadTimeOut == false 表示当前线程池会维护核心数量内的线程。
+                    allowCoreThreadTimeOut
+                            ||
 
-            //情况1：allowCoreThreadTimeOut == true 表示核心线程数量内的线程 也可以被回收。
-            //所有线程 都是使用queue.poll(xxx,xxx) 超时机制这种方式获取task.
-            //情况2：allowCoreThreadTimeOut == false 表示当前线程池会维护核心数量内的线程。
-            //wc > corePoolSize
-            //条件成立：当前线程池中的线程数量是大于核心线程数的，此时让所有路过这里的线程，都是用poll 支持超时的方式去获取任务，
-            //这样，就会可能有一部分线程获取不到任务，获取不到任务 返回Null，然后..runWorker会执行线程退出逻辑。
-            boolean timed = allowCoreThreadTimeOut || wc > corePoolSize;
+                            //条件成立：当前线程池中的线程数量是大于核心线程数的，此时让所有路过这里的线程，都用poll 支持超时的方式去获取任务，
+                            //这样，就可能会有一部分线程获取不到任务，获取不到任务 返回Null，然后..runWorker会执行线程退出逻辑。
+                            wc > corePoolSize;
 
-            //条件一：(wc > maximumPoolSize || (timed && timedOut))
-            //1.1：wc > maximumPoolSize  为什么会成立？setMaximumPoolSize()方法，可能外部线程将线程池最大线程数设置为比初始化时的要小
-            //1.2: (timed && timedOut) 条件成立：前置条件，当前线程使用 poll方式获取task。上一次循环时  使用poll方式获取任务时，超时了
-            //条件一 为true 表示 线程可以被回收，达到回收标准，当确实需要回收时再回收。
-
-            //条件二：(wc > 1 || workQueue.isEmpty())
-            //2.1: wc > 1  条件成立，说明当前线程池中还有其他线程，当前线程可以直接回收，返回null
-            //2.2: workQueue.isEmpty() 前置条件 wc == 1， 条件成立：说明当前任务队列 已经空了，最后一个线程，也可以放心的退出。
             if (
+            /**
+             * 条件一：(wc > maximumPoolSize || (timed && timedOut))
+             * 1.1：wc > maximumPoolSize  为什么会成立？setMaximumPoolSize()方法，可能外部线程将线程池最大线程数设置为比初始化时的要小
+             * 1.2: (timed && timedOut) 条件成立：前置条件，当前线程使用 poll方式获取task。上一次循环时  使用poll方式获取任务时，超时了
+             * 条件一 为true 表示 线程可以被回收，达到回收标准，当确实需要回收时再回收。
+             * @see ThreadPoolExecutor#setMaximumPoolSize(int)
+             */
                     (wc > maximumPoolSize || (timed && timedOut))
                             &&
+
+                            //条件二：(wc > 1 || workQueue.isEmpty())
+                            //2.1: wc > 1  条件成立，说明当前线程池中还有其他线程，当前线程可以直接回收，返回null
+                            //2.2: workQueue.isEmpty() 前置条件 wc == 1， 条件成立：说明当前任务队列 已经空了，最后一个线程，也可以放心的退出。
                             (wc > 1 || workQueue.isEmpty())) {
+
                 //使用CAS机制 将 ctl值 -1 ,减1成功的线程，返回null
                 //CAS成功的，返回Null
                 //CAS失败？ 为什么会CAS失败？
@@ -1536,6 +1557,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 if (compareAndDecrementWorkerCount(c)) {
                     return null;
                 }
+
                 //再次自旋时，timed有可能就是false了，因为当前线程cas失败，很有可能是因为其它线程成功退出导致的，再次咨询时
                 //检查发现，当前线程 就可能属于 不需要回收范围内了。
                 continue;
@@ -1544,7 +1566,9 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             try {
                 //获取任务的逻辑
 
-                Runnable r = timed ?
+                Runnable r =
+                        //是否可以超时，如果可以，则可能进行线程回收的操作
+                        timed ?
                         workQueue.poll(keepAliveTime, TimeUnit.NANOSECONDS) :
                         workQueue.take();
 
@@ -1552,7 +1576,6 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 if (r != null) {
                     return r;
                 }
-
                 //说明当前线程超时了...
                 timedOut = true;
             } catch (InterruptedException retry) {
