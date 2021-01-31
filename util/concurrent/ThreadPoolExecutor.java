@@ -852,6 +852,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             Thread t;
             if (getState() >= 0 && (t = thread) != null && !t.isInterrupted()) {
                 try {
+                    //未中断则发一个中断信号
                     t.interrupt();
                 } catch (SecurityException ignore) {
                 }
@@ -993,14 +994,14 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * (in which case some threads may remain uninterrupted).
      */
     private void interruptWorkers() {
+        //可重入锁
         final ReentrantLock mainLock = this.mainLock;
         //获取线程池全局锁
         mainLock.lock();
         try {
             //遍历所有worker
-            for (Worker w : workers)
-            //interruptIfStarted() 如果worker内的thread 是启动状态，则给它一个中断信号。。
-            {
+            for (Worker w : workers) {
+                //interruptIfStarted() 如果worker内的thread 是启动状态，则给它一个中断信号。。
                 w.interruptIfStarted();
             }
         } finally {
@@ -1031,6 +1032,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     //onlyOne == true 说明只中断一个线程 ，false 则中断所有线程
     //共同前提，worker是空闲状态。
     private void interruptIdleWorkers(boolean onlyOne) {
+        //可重入锁
         final ReentrantLock mainLock = this.mainLock;
         //持有全局锁
         mainLock.lock();
@@ -2138,8 +2140,12 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             checkShutdownAccess();
             //设置线程池状态为STOP
             advanceRunState(STOP);
-            //中断线程池中所有线程
+
+            //中断线程池中
+            // 所有 ！！！！！
+            //线程
             interruptWorkers();
+
             //导出未处理的task
             tasks = drainQueue();
         } finally {
