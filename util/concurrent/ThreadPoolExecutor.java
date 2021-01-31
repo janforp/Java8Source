@@ -874,11 +874,14 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         //自旋
         for (; ; ) {
             int c = ctl.get();
-            //条件成立：假设targetState == SHUTDOWN，说明 当前线程池状态是 >= SHUTDOWN
-            //条件不成立：假设targetState == SHUTDOWN ，说明当前线程池状态是RUNNING。
+
             if (
+                //条件成立：假设targetState == SHUTDOWN，说明 当前线程池状态是 >= SHUTDOWN
+                //条件不成立：假设targetState == SHUTDOWN ，说明当前线程池状态是RUNNING。
                     runStateAtLeast(c, targetState)
                             ||
+
+                            //前提：假设targetState == SHUTDOWN，说明当前线程池状态是RUNNING。
                             ctl.compareAndSet(c, ctlOf(targetState, workerCountOf(c)))) {
                 break;
             }
@@ -1036,24 +1039,31 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             for (Worker w : workers) {
                 //获取当前worker的线程 保存到t
                 Thread t = w.thread;
-                //条件一：条件成立：!t.isInterrupted()  == true  说明当前迭代的这个线程尚未中断。
-                //条件二：w.tryLock() 条件成立：说明当前worker处于空闲状态，可以去给它一个中断信号。 目前worker内的线程 在 queue.take() | queue.poll()
-                //阻塞中。因为worker执行task时，是加锁的!
-                if (!t.isInterrupted() && w.tryLock()) {
+                if (
+                    //条件一：条件成立：!t.isInterrupted()  == true  说明当前迭代的这个线程尚未中断。
+                        !t.isInterrupted()
+                                &&
+                                //条件二：w.tryLock() 条件成立：说明当前worker处于空闲状态，可以去给它一个中断信号。
+                                //目前worker内的线程 在 queue.take() | queue.poll() 阻塞中。
+                                //因为worker执行task时，是加锁的!所以只有在空闲的时候才能成功拿到锁
+                                w.tryLock()) {
+
                     try {
                         //给当前线程中断信号..处于queue阻塞的线程，会被唤醒，唤醒后，进入下一次自旋时，可能会return null。执行退出相关的逻辑。
                         t.interrupt();
                     } catch (SecurityException ignore) {
+                        //ignore
                     } finally {
                         //释放worker的独占锁。
                         w.unlock();
                     }
                 }
+
+                //是否只中断一个
                 if (onlyOne) {
                     break;
                 }
             }
-
         } finally {
             //释放全局锁。
             mainLock.unlock();
@@ -1063,6 +1073,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     /**
      * Common form of interruptIdleWorkers, to avoid having to
      * remember what the boolean argument means.
+     *
+     * 避免忘记记住布尔参数含义的常用形式的interruptIdleWorkers。
      */
     private void interruptIdleWorkers() {
         interruptIdleWorkers(false);
@@ -2085,8 +2097,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             checkShutdownAccess();
             //设置线程池状态为SHUTDOWN
             advanceRunState(SHUTDOWN);
+
             //中断空闲线程
             interruptIdleWorkers();
+
             //空方法，子类可以扩展
             onShutdown(); // hook for ScheduledThreadPoolExecutor
         } finally {
