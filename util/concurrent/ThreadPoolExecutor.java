@@ -1180,16 +1180,17 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
             // Check if queue empty only if necessary.(仅在必要时检查队列是否为空。)
 
-            //条件二：前置条件，当前的线程池状态不是running状态  ! (rs == SHUTDOWN && firstTask == null && ! workQueue.isEmpty())
-            //rs == SHUTDOWN && firstTask == null && ! workQueue.isEmpty()
-            //表示：当前线程池状态是SHUTDOWN状态 & 提交的任务是空，addWorker这个方法可能不是execute调用的。 & 当前任务队列不是空
-            //排除掉这种情况，当前线程池是SHUTDOWN状态，但是队列里面还有任务尚未处理完，这个时候是允许添加worker，但是不允许再次提交task。
             if (
                     rs >= SHUTDOWN//rs >= SHUTDOWN 成立：说明当前线程池状态不是running状态
                             &&
                             //前提：当前状态不是RUNNING
                             //如果该条件返回为ture，则表示：
                             //当前线程池是SHUTDOWN状态，但是队列里面还有任务尚未处理完，这个时候是允许添加worker，但是不允许再次提交task
+
+                            //条件二：前置条件，当前的线程池状态不是running状态  ! (rs == SHUTDOWN && firstTask == null && ! workQueue.isEmpty())
+                            //rs == SHUTDOWN && firstTask == null && ! workQueue.isEmpty()
+                            //表示：当前线程池状态是SHUTDOWN状态 & 提交的任务是空，addWorker这个方法可能不是execute调用的。 & 当前任务队列不是空
+                            //排除掉这种情况，当前线程池是SHUTDOWN状态，但是队列里面还有任务尚未处理完，这个时候是允许添加worker，但是不允许再次提交task。
                             !(rs == SHUTDOWN && firstTask == null && !workQueue.isEmpty())) {
                 //什么情况下回返回false?
                 //线程池状态 rs > SHUTDOWN
@@ -1494,8 +1495,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             //条件二：(wc > 1 || workQueue.isEmpty())
             //2.1: wc > 1  条件成立，说明当前线程池中还有其他线程，当前线程可以直接回收，返回null
             //2.2: workQueue.isEmpty() 前置条件 wc == 1， 条件成立：说明当前任务队列 已经空了，最后一个线程，也可以放心的退出。
-            if ((wc > maximumPoolSize || (timed && timedOut))
-                    && (wc > 1 || workQueue.isEmpty())) {
+            if (
+                    (wc > maximumPoolSize || (timed && timedOut))
+                            &&
+                            (wc > 1 || workQueue.isEmpty())) {
                 //使用CAS机制 将 ctl值 -1 ,减1成功的线程，返回null
                 //CAS成功的，返回Null
                 //CAS失败？ 为什么会CAS失败？
@@ -1614,9 +1617,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 //这种情况有发生几率么？
                 //有可能，因为外部线程在 第一次 (runStateAtLeast(ctl.get(), STOP) == false 后，有机会调用shutdown 、shutdownNow方法，将线程池状态修改
                 //这个时候，也会将当前线程的中断标记位 再次设置回 中断状态。
-                if ((runStateAtLeast(ctl.get(), STOP) ||
-                        (Thread.interrupted() &&
-                                runStateAtLeast(ctl.get(), STOP))) &&
+                if ((runStateAtLeast(ctl.get(), STOP) || (Thread.interrupted() && runStateAtLeast(ctl.get(), STOP)))
+                        &&
                         !wt.isInterrupted()) {
                     wt.interrupt();
                 }
@@ -2200,8 +2202,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * @return {@code true} if a thread was started
      */
     public boolean prestartCoreThread() {
-        return workerCountOf(ctl.get()) < corePoolSize &&
-                addWorker(null, true);
+        return workerCountOf(ctl.get()) < corePoolSize && addWorker(null, true);
     }
 
     /**
@@ -2367,7 +2368,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     /**
      * Removes this task from the executor's internal queue if it is
      * present, thus causing it not to be run if it has not already
-     * started.
+     * started.(如果执行程序的内部队列中存在此任务，则将其删除，如果尚未启动，则导致该任务无法运行。)
      *
      * <p>This method may be useful as one part of a cancellation
      * scheme.  It may fail to remove tasks that have been converted
