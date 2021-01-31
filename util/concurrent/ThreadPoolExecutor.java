@@ -1647,7 +1647,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
         try {
             while (
-                //条件一：task != null 指的就是firstTask是不是null，如果不是null，直接执行循环体里面。
+                //条件一：task != null 指的就是firstTask是不是null，如果不是null，则进入循环体先执行firstTask任务。
                     task != null
                             ||
                             //条件二：(task = getTask()) != null
@@ -1701,6 +1701,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     wt.interrupt();
                 }
 
+                //开始执行一个任务
                 try {
                     //钩子方法，留给子类实现的
                     beforeExecute(wt, task);
@@ -1734,8 +1735,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     //2.task.run()时内部抛出异常了..
                     w.unlock();
                 }
+                //执行一个任务结束，继续获取任务
+
             }// while 循环结束，可能继续循环，可能往下执行
 
+            //如果循环正常结束，就表示没有发生异常
             //什么情况下，会来到这里？
             //getTask()方法返回null时，说明当前线程应该执行退出逻辑了。
             completedAbruptly = false;
