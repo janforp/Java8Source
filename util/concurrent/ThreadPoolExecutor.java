@@ -1388,12 +1388,14 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * corePoolSize workers are running or queue is non-empty but
      * there are no workers.
      *
-     * @param w the worker
-     * @param completedAbruptly if the worker died due to user exception
+     * @param w the worker 要退出的线程
+     * @param completedAbruptly if the worker died due to user exception 是否突然退出,true表示执行任务的时候发生了异常
+     * @see ThreadPoolExecutor#runWorker(util.concurrent.ThreadPoolExecutor.Worker)
      */
     private void processWorkerExit(Worker w, boolean completedAbruptly) {
         //条件成立：代表当前w 这个worker是发生异常退出的，task任务执行过程中向上抛出异常了..
         //异常退出时，ctl计数，并没有-1
+        //正常退出的时候都已经执行了 -1
         if (completedAbruptly) {
             // If abrupt, then workerCount wasn't adjusted
             decrementWorkerCount();
@@ -1413,12 +1415,14 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             mainLock.unlock();
         }
 
+        //TODO
         tryTerminate();
 
         //获取最新ctl值
         int c = ctl.get();
         //条件成立：当前线程池状态为 RUNNING 或者 SHUTDOWN状态
         if (runStateLessThan(c, STOP)) {
+            //当前线程池状态为：RUNNING 或者 SHUTDOWN状态
 
             //条件成立：当前线程是正常退出..
             if (!completedAbruptly) {
@@ -1432,16 +1436,17 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 //条件一：假设min == 0 成立
                 //条件二：! workQueue.isEmpty() 说明任务队列中还有任务，最起码要留一个线程。
                 if (min == 0 && !workQueue.isEmpty()) {
+                    //说明任务队列中还有任务，起码留一个线程
                     min = 1;
                 }
 
                 //条件成立：线程池中还拥有足够的线程。
-                //考虑一个问题： workerCountOf(c) >= min  =>  (0 >= 0) ?
+                //考虑一个问题： workerCountOf(c) >= min  =>  (0 >= 0) ?是否有可能存在这个情况？
                 //有可能！
-                //什么情况下？ 当线程池中的核心线程数是可以被回收的情况下，会出现这种情况，这种情况下，当前线程池中的线程数 会变为0
+                //什么情况下发生呢？ 答：当线程池中的核心线程数是可以被回收的情况下，会出现这种情况，这种情况下，当前线程池中的线程数 会变为0
                 //下次再提交任务时，会再创建线程。
                 if (workerCountOf(c) >= min) {
-                    return; // replacement not needed
+                    return; // replacement not needed 无需更换
                 }
             }
 
@@ -1569,8 +1574,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 Runnable r =
                         //是否可以超时，如果可以，则可能进行线程回收的操作
                         timed ?
-                        workQueue.poll(keepAliveTime, TimeUnit.NANOSECONDS) :
-                        workQueue.take();
+                                workQueue.poll(keepAliveTime, TimeUnit.NANOSECONDS) :
+                                workQueue.take();
 
                 //条件成立：返回任务
                 if (r != null) {
@@ -1765,6 +1770,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             //如果循环正常结束，就表示没有发生异常
             //什么情况下，会来到这里？
             //getTask()方法返回null时，说明当前线程应该执行退出逻辑了。
+            //表示当前线程正常退出
             completedAbruptly = false;
         } finally {
 
