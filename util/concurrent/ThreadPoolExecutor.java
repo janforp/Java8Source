@@ -1623,17 +1623,21 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      *
      * 异常机制的最终结果是afterExecute和线程的UncaughtExceptionHandler具有与我们所能提供的有关用户代码遇到的任何问题的准确信息。
      *
-     * @param w the worker
+     * @param w the worker 就是启动worker
      */
     //w 就是启动worker
     final void runWorker(Worker w) {
         //wt == w.thread
+        //TODO 跟 w 中的线程是同一个？？？
         Thread wt = Thread.currentThread();
         //将初始执行task赋值给task
         Runnable task = w.firstTask;
         //清空当前w.firstTask引用
         w.firstTask = null;
-        //这里为什么先调用unlock? 就是为了初始化worker state == 0 和 exclusiveOwnerThread ==null
+
+        //这里为什么先调用unlock?
+        //就是为了初始化worker
+        //state == 0 和 exclusiveOwnerThread ==null
         w.unlock(); // allow interrupts
 
         //是否是突然退出，
@@ -1649,38 +1653,51 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                             //条件二：(task = getTask()) != null
                             //条件成立：说明当前线程在queue中获取任务成功，getTask这个方法是一个会阻塞线程的方法
                             //getTask如果返回null，当前线程需要执行结束逻辑。
-                            (task = getTask()) != null) {
+                            (task = getTask()) != null) { //循环不断的去获取任务，并且执行，执行完之后继续循环获取任务
                 //worker设置独占锁 为当前线程
-                //为什么要设置独占锁呢？shutdown时会判断当前worker状态，根据独占锁是否空闲来判断当前worker是否正在工作。
+                //为什么要设置独占锁呢？
+                //shutdown时会判断当前worker状态，根据独占锁是否空闲来判断当前worker是否正在工作。
                 w.lock();
+
                 // If pool is stopping, ensure thread is interrupted;
                 // if not, ensure thread is not interrupted.  This
                 // requires a recheck in second case to deal with
                 // shutdownNow race while clearing interrupt
                 // 如果池正在停止，请确保线程被中断；如果没有，请确保线程不被中断。这需要在第二种情况下重新检查以处理shutdownNow竞赛，同时清除中断
 
-                //条件一：runStateAtLeast(ctl.get(), STOP)  说明线程池目前处于STOP/TIDYING/TERMINATION 此时线程一定要给它一个中断信号
-                //条件一成立：runStateAtLeast(ctl.get(), STOP)&& !wt.isInterrupted()
-                //上面如果成立：说明当前线程池状态是>=STOP 且 当前线程是未设置中断状态的，此时需要进入到if里面，给当前线程一个中断。
-
-                //假设：runStateAtLeast(ctl.get(), STOP) == false
-                // (Thread.interrupted() && runStateAtLeast(ctl.get(), STOP)) 在干吗呢？
-                // Thread.interrupted() 获取当前中断状态，且设置中断位为false。连续调用两次，这个interrupted()方法 第二次一定是返回false.
-                // runStateAtLeast(ctl.get(), STOP) 大概率这里还是false.
-                // 其实它在强制刷新当前线程的中断标记位 false，因为有可能上一次执行task时，业务代码里面将当前线程的中断标记位 设置为了 true，且没有处理
-                // 这里一定要强制刷新一下。不会再影响到后面的task了。
-                //假设：Thread.interrupted() == true  且 runStateAtLeast(ctl.get(), STOP)) == true
-                //这种情况有发生几率么？
-                //有可能，因为外部线程在 第一次 (runStateAtLeast(ctl.get(), STOP) == false 后，有机会调用shutdown 、shutdownNow方法，将线程池状态修改
-                //这个时候，也会将当前线程的中断标记位 再次设置回 中断状态。
                 if (
-                        (runStateAtLeast(ctl.get(), STOP)
-                                ||
-                                (Thread.interrupted() && runStateAtLeast(ctl.get(), STOP)))
+                        (
+                                //条件一：runStateAtLeast(ctl.get(), STOP)  说明线程池目前处于STOP/TIDYING/TERMINATION 此时线程一定要给它一个中断信号
+                                runStateAtLeast(ctl.get(), STOP)
+                                        ||
+
+                                        // (Thread.interrupted() && runStateAtLeast(ctl.get(), STOP)) 在干吗呢？
+                                        // 其实它在强制刷新当前线程的中断标记位 false，因为有可能上一次执行task时，业务代码里面将当前线程的中断标记位 设置为了 true，且没有处理
+                                        // 这里一定要强制刷新一下。就不会再影响到后面的task了。
+
+                                        //假设：Thread.interrupted() == true  且 runStateAtLeast(ctl.get(), STOP)) == true
+                                        //这种情况有发生几率么？
+                                        //有可能，因为外部线程在 第一次 (runStateAtLeast(ctl.get(), STOP) == false 后，有机会调用shutdown 、shutdownNow方法，将线程池状态修改
+                                        //这个时候，也会将当前线程的中断标记位 再次设置回 中断状态。
+                                        (
+                                                //Thread.interrupted()：获取中断状态，且设置中断状态为false,连续调用2池，则第二次肯定返回false
+                                                //假设：runStateAtLeast(ctl.get(), STOP) == false，则会执行到这里
+                                                Thread.interrupted()
+                                                        &&
+                                                        // runStateAtLeast(ctl.get(), STOP) 大概率这里还是false.
+                                                        runStateAtLeast(ctl.get(), STOP)
+                                        )
+                        )
 
                                 &&
+
+                                //wt.isInterrupted():返回该线程是否已经设置中断状态
+                                //条件一成立：runStateAtLeast(ctl.get(), STOP)&& !wt.isInterrupted()
+                                //上面如果成立：说明当前线程池状态是>=STOP 且 当前线程是未设置中断状态的，此时需要进入到if里面，给当前线程一个中断。
                                 !wt.isInterrupted()
                 ) {
+
+                    //此时线程一定要给它一个中断信号
                     wt.interrupt();
                 }
 
@@ -1717,7 +1734,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     //2.task.run()时内部抛出异常了..
                     w.unlock();
                 }
-            }
+            }// while 循环结束，可能继续循环，可能往下执行
 
             //什么情况下，会来到这里？
             //getTask()方法返回null时，说明当前线程应该执行退出逻辑了。
