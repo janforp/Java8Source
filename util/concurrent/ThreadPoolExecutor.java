@@ -1277,7 +1277,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                                     //(rs == SHUTDOWN && firstTask == null)  当前状态为SHUTDOWN状态且firstTask为空。
                                     //其实判断的就是SHUTDOWN状态下的特殊情况，
                                     //只不过这里不再判断队列是否为空了
-                                    (rs == SHUTDOWN && firstTask == null)) {
+                                    (rs == SHUTDOWN && firstTask == null)) {//言下之意就是当线程池是shutdown状态的时候，并且firstTask是null的时候也可以创建线程
                         //t.isAlive() 当线程start后，线程isAlive会返回true。
                         //防止脑子发热的程序员，ThreadFactory创建线程返回给外部之前，将线程start了。。
                         if (t.isAlive()) {
