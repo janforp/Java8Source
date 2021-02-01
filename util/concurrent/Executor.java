@@ -1,38 +1,3 @@
-/*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
- * Written by Doug Lea with assistance from members of JCP JSR-166
- * Expert Group and released to the public domain, as explained at
- * http://creativecommons.org/publicdomain/zero/1.0/
- */
-
 package java.util.concurrent;
 
 /**
@@ -52,11 +17,11 @@ package java.util.concurrent;
  * </pre>
  *
  * However, the {@code Executor} interface does not strictly
- * require that execution be asynchronous. In the simplest case, an
+ * require that execution be asynchronous(异步). In the simplest case, an
  * executor can run the submitted task immediately in the caller's
  * thread:
  *
- *  <pre> {@code
+ * <pre> {@code
  * class DirectExecutor implements Executor {
  *   public void execute(Runnable r) {
  *     r.run();
@@ -67,7 +32,9 @@ package java.util.concurrent;
  * than the caller's thread.  The executor below spawns a new thread
  * for each task.
  *
- *  <pre> {@code
+ * -- 更典型地，任务在调用者线程之外的某个线程中执行。下面的执行程序为每个任务生成一个新线程。
+ *
+ * <pre> {@code
  * class ThreadPerTaskExecutor implements Executor {
  *   public void execute(Runnable r) {
  *     new Thread(r).start();
@@ -79,7 +46,10 @@ package java.util.concurrent;
  * serializes the submission of tasks to a second executor,
  * illustrating a composite executor.
  *
- *  <pre> {@code
+ * -- 许多{@code Executor}实现对计划任务的方式和时间施加了某种限制。
+ * 下面的执行程序将任务提交序列化到第二个执行程序，说明了一个复合执行程序。
+ *
+ * <pre> {@code
  * class SerialExecutor implements Executor {
  *   final Queue<Runnable> tasks = new ArrayDeque<Runnable>();
  *   final Executor executor;
@@ -114,16 +84,18 @@ package java.util.concurrent;
  * The {@code Executor} implementations provided in this package
  * implement {@link ExecutorService}, which is a more extensive
  * interface.  The {@link ThreadPoolExecutor} class provides an
- * extensible thread pool implementation. The {@link Executors} class
- * provides convenient factory methods for these Executors.
+ * extensible(可扩展的) thread pool implementation. The {@link Executors} class
+ * provides convenient(方便) factory methods for these Executors.
  *
  * <p>Memory consistency effects: Actions in a thread prior to
  * submitting a {@code Runnable} object to an {@code Executor}
  * <a href="package-summary.html#MemoryVisibility"><i>happen-before</i></a>
  * its execution begins, perhaps in another thread.
  *
- * @since 1.5
+ * 内存一致性影响：
+ *
  * @author Doug Lea
+ * @since 1.5
  */
 public interface Executor {
 
@@ -132,9 +104,10 @@ public interface Executor {
      * may execute in a new thread, in a pooled thread, or in the calling
      * thread, at the discretion of the {@code Executor} implementation.
      *
+     * -- 在将来的某个时间执行给定命令。根据{@code Executor}具体实现来判断，命令可以在新线程，池线程或调用线程中执行。
+     *
      * @param command the runnable task
-     * @throws RejectedExecutionException if this task cannot be
-     * accepted for execution
+     * @throws RejectedExecutionException if this task cannot be accepted for execution - 如果无法接受此任务以执行
      * @throws NullPointerException if command is null
      */
     void execute(Runnable command);
