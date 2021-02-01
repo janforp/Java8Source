@@ -3,6 +3,11 @@
 import java.security.AccessControlContext;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+import java.util.ArrayList;
+import java.util.ConcurrentModificationException;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -16,53 +21,49 @@ import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.AbstractQueuedSynchronizer;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.*;
 
 /**
- * An {@link ExecutorService} that executes each submitted task using
- * one of possibly several pooled threads, normally configured
- * using {@link Executors} factory methods.
+ * An {@link ExecutorService} that executes each submitted task using one of possibly several pooled threads, normally configured using {@link Executors} factory methods.
+ * -- 一个{@link ExecutorService}，它可以使用多个池线程中的一个执行每个提交的任务，通常使用{@link Executors}工厂方法进行配置。
  *
- * <p>Thread pools address two different problems: they usually
- * provide improved performance when executing large numbers of
- * asynchronous tasks, due to reduced per-task invocation overhead,
- * and they provide a means of bounding and managing the resources,
- * including threads, consumed when executing a collection of tasks.
- * Each {@code ThreadPoolExecutor} also maintains some basic
- * statistics, such as the number of completed tasks.
+ * Thread pools address two different problems:
+ * -- 线程池解决了两个不同的问题：
  *
- * <p>To be useful across a wide range of contexts, this class
- * provides many adjustable parameters and extensibility
- * hooks. However, programmers are urged to use the more convenient
- * {@link Executors} factory methods {@link
- * Executors#newCachedThreadPool} (unbounded thread pool, with
- * automatic thread reclamation), {@link Executors#newFixedThreadPool}
- * (fixed size thread pool) and {@link
- * Executors#newSingleThreadExecutor} (single background thread), that
- * preconfigure settings for the most common usage
- * scenarios. Otherwise, use the following guide when manually
- * configuring and tuning this class:
+ * they usually provide improved performance when executing large numbers of asynchronous tasks,
+ * -- 当执行大量异步任务时，它们通常可以提高性能，
+ *
+ * due to reduced per-task invocation overhead, and they provide a means of bounding and managing the resources, including threads, consumed when executing a collection of tasks.
+ * -- 由于减少了每个任务的调用开销，因此它们提供了一种绑定和管理在执行任务集合时消耗的资源（包括线程）的方法。
+ *
+ * Each {@code ThreadPoolExecutor} also maintains some basic statistics, such as the number of completed tasks.
+ * -- 每个{@code ThreadPoolExecutor}还维护一些基本统计信息，例如已完成任务的数量。
+ *
+ * To be useful across a wide range of contexts, this class provides many adjustable parameters and extensibility hooks.
+ * -- 为了在广泛的上下文中有用，该类提供了许多可调整的参数和可扩展性挂钩。(意思就是他有很多的钩子函数，感觉自己很吊)
+ *
+ * However, programmers are urged to use the more convenient {@link Executors} factory methods {@link Executors#newCachedThreadPool} (unbounded thread pool, with automatic thread reclamation), {@link Executors#newFixedThreadPool}(fixed size thread pool) and {@link Executors#newSingleThreadExecutor} (single background thread), that preconfigure settings for the most common usage scenarios.
+ * - 但是，强烈建议程序员使用更方便的{@link Executors}工厂方法{@link Executors＃newCachedThreadPool}（无边界线程池，具有自动线程回收），{@link Executors＃newFixedThreadPool}（固定大小的线程池）和{ @link Executors＃newSingleThreadExecutor}（单个后台线程），可以为最常见的使用场景预配置设置。
+ *
+ * Otherwise, use the following guide when manually configuring and tuning this class:
+ * -- 否则，在手动配置和调整此类时，请使用以下指南：
  *
  * <dl>
  *
  * <dt>Core and maximum pool sizes</dt>
  *
- * <dd>A {@code ThreadPoolExecutor} will automatically adjust the
- * pool size (see {@link #getPoolSize})
- * according to the bounds set by
- * corePoolSize (see {@link #getCorePoolSize}) and
- * maximumPoolSize (see {@link #getMaximumPoolSize}).
+ * A {@code ThreadPoolExecutor} will automatically adjust the pool size (see {@link #getPoolSize}) according to the bounds set by corePoolSize (see {@link #getCorePoolSize}) and maximumPoolSize (see {@link #getMaximumPoolSize}).
  *
- * When a new task is submitted in method {@link #execute(Runnable)},
- * and fewer than corePoolSize threads are running, a new thread is
- * created to handle the request, even if other worker threads are
- * idle.  If there are more than corePoolSize but less than
- * maximumPoolSize threads running, a new thread will be created only
- * if the queue is full.  By setting corePoolSize and maximumPoolSize
+ * When a new task is submitted in method {@link #execute(Runnable)}, and fewer than corePoolSize threads are running, a new thread is created to handle the request, even if other worker threads are idle.
+ * -- 当在方法{@link #execute（Runnable）}中提交新任务，并且正在运行的线程少于corePoolSize个线程时，即使其他工作线程处于空闲状态，也会创建一个新线程来处理请求。
+ *
+ * If there are more than corePoolSize but less than maximumPoolSize threads running, a new thread will be created only if the queue is full.
+ * -- 如果运行的线程数大于corePoolSize但小于maximumPoolSize，则仅在队列已满时才创建新线程。
+ *
+ * By setting corePoolSize and maximumPoolSize
  * the same, you create a fixed-size thread pool. By setting
  * maximumPoolSize to an essentially unbounded value such as {@code
  * Integer.MAX_VALUE}, you allow the pool to accommodate an arbitrary
@@ -71,108 +72,148 @@ import java.util.*;
  * dynamically using {@link #setCorePoolSize} and {@link
  * #setMaximumPoolSize}. </dd>
  *
- * <dt>On-demand construction</dt>
+ * -- 意思就是通过指定corePoolSize跟maximumPoolSize为不同的值就可以直线不同策略的线程池了，并且一般这2个参数都是通过构造器指定，但是也支持动态的改变l
  *
- * <dd>By default, even core threads are initially created and
- * started only when new tasks arrive, but this can be overridden
- * dynamically using method {@link #prestartCoreThread} or {@link
- * #prestartAllCoreThreads}.  You probably want to prestart threads if
- * you construct the pool with a non-empty queue. </dd>
+ * <dt>On-demand construction</dt>
+ * -- 按需施工
+ *
+ * <dd>
+ *     By default, even core threads are initially created and started only when new tasks arrive, but this can be overridden dynamically using method {@link #prestartCoreThread} or {@link #prestartAllCoreThreads}.
+ *     -- 默认情况下，只有在有新任务到达时才开始启动核心线程，但是可以使用方法{@link #prestartCoreThread}或{@link #prestartAllCoreThreads}动态地覆盖它。
+ *     You probably want to prestart threads if you construct the pool with a non-empty queue.
+ *     -- 如果使用非空队列构造池，则可能要预启动线程。
+ * </dd>
  *
  * <dt>Creating new threads</dt>
  *
- * <dd>New threads are created using a {@link ThreadFactory}.  If not
- * otherwise specified, a {@link Executors#defaultThreadFactory} is
- * used, that creates threads to all be in the same {@link
- * ThreadGroup} and with the same {@code NORM_PRIORITY} priority and
- * non-daemon status. By supplying a different ThreadFactory, you can
- * alter the thread's name, thread group, priority, daemon status,
- * etc. If a {@code ThreadFactory} fails to create a thread when asked
- * by returning null from {@code newThread}, the executor will
- * continue, but might not be able to execute any tasks. Threads
- * should possess the "modifyThread" {@code RuntimePermission}. If
- * worker threads or other threads using the pool do not possess this
- * permission, service may be degraded: configuration changes may not
- * take effect in a timely manner, and a shutdown pool may remain in a
- * state in which termination is possible but not completed.</dd>
+ * <dd>
+ *     New threads are created using a {@link ThreadFactory}.
+ *     -- 使用{@link ThreadFactory}创建新线程。
+ *
+ *     If not otherwise specified, a {@link Executors#defaultThreadFactory} is used, that creates threads to all be in the same {@link ThreadGroup} and with the same {@code NORM_PRIORITY} priority and non-daemon status.
+ *     -- 如果没有另外指定，则使用{@link Executors＃defaultThreadFactory}，该线程工厂创建的线程全部位于相同的{@link ThreadGroup}中，并且具有相同的{@code NORM_PRIORITY}优先级和非守护进程状态。
+ *
+ *     By supplying a different ThreadFactory, you can alter the thread's name, thread group, priority, daemon status, etc.
+ *     -- 通过提供其他ThreadFactory，可以更改线程的名称，线程组，优先级，守护程序状态等。
+ *
+ *     If a {@code ThreadFactory} fails to create a thread when aske by returning null from {@code newThread}, the executor will continue, but might not be able to execute any tasks.
+ *     -- 如果{@code ThreadFactory}在{@code newThread}中返回null时，在创建aske时未能创建线程，则执行程序将继续执行，但可能无法执行任何任务。
+ *
+ *     Threads should possess the "modifyThread" {@code RuntimePermission}.
+ *
+ *     If worker threads or other threads using the pool do not possess this permission, service may be degraded:
+ *     -- 如果使用该池的工作线程或其他线程不具有此权限，则服务可能降级：
+ *
+ *     configuration changes may not take effect in a timely manner, and a shutdown pool may remain in a state in which termination is possible but not completed.
+ * </dd>
  *
  * <dt>Keep-alive times</dt>
  *
- * <dd>If the pool currently has more than corePoolSize threads,
- * excess threads will be terminated if they have been idle for more
- * than the keepAliveTime (see {@link #getKeepAliveTime(TimeUnit)}).
- * This provides a means of reducing resource consumption when the
- * pool is not being actively used. If the pool becomes more active
- * later, new threads will be constructed. This parameter can also be
- * changed dynamically using method {@link #setKeepAliveTime(long,
- * TimeUnit)}.  Using a value of {@code Long.MAX_VALUE} {@link
- * TimeUnit#NANOSECONDS} effectively disables idle threads from ever
- * terminating prior to shut down. By default, the keep-alive policy
- * applies only when there are more than corePoolSize threads. But
- * method {@link #allowCoreThreadTimeOut(boolean)} can be used to
- * apply this time-out policy to core threads as well, so long as the
- * keepAliveTime value is non-zero. </dd>
+ * <dd>
+ *     If the pool currently has more than corePoolSize threads, excess threads will be terminated if they have been idle for more than the keepAliveTime (see {@link #getKeepAliveTime(TimeUnit)}).
+ *     -- 如果当前池中的线程数超过corePoolSize线程，则多余的线程将在空闲时间超过keepAliveTime时终止（请参阅{@link #getKeepAliveTime（TimeUnit）}）。
+ *
+ *      This provides a means of reducing resource consumption when the pool is not being actively used.
+ *      -- 当线程池不活跃的时候，这提供了减少资源消耗的方法。
+ *
+ *      If the pool becomes more active later, new threads will be constructed.
+ *      -- 如果池稍后变得更加活跃，则将构建新线程。
+ *
+ *      This parameter can also be changed dynamically using method {@link #setKeepAliveTime(long, TimeUnit)}.
+ *      -- 也可以使用方法{@link #setKeepAliveTime（long，TimeUnit）}动态更改此参数。
+ *
+ *      Using a value of {@code Long.MAX_VALUE} {@link TimeUnit#NANOSECONDS} effectively disables idle threads from ever terminating prior to shut down.
+ *      -- 使用{@code Long.MAX_VALUE}的值{@link TimeUnit＃NANOSECONDS}有效地使空闲线程永远不会在关闭之前终止。
+ *
+ *      By default, the keep-alive policy applies only when there are more than corePoolSize threads.
+ *      -- 默认情况下，仅当存在多于corePoolSize个线程时，保持活动策略才适用。
+ *
+ *      But method {@link #allowCoreThreadTimeOut(boolean)} can be used to apply this time-out policy to core threads as well, so long as the keepAliveTime value is non-zero.
+ *      -- 但是方法{@link #allowCoreThreadTimeOut（boolean）}也可以用于将此超时策略应用于核心线程，只要keepAliveTime值不为零即可。
+ * </dd>
  *
  * <dt>Queuing</dt>
  *
- * <dd>Any {@link BlockingQueue} may be used to transfer and hold
- * submitted tasks.  The use of this queue interacts with pool sizing:
- *
+ * <dd>
+ *     Any {@link BlockingQueue} may be used to transfer and hold submitted tasks.  The use of this queue interacts with pool sizing:
+ *     -- 任何{@link BlockingQueue}均可用于传输和保留提交的任务。此队列的使用与池大小交互：
  * <ul>
  *
- * <li> If fewer than corePoolSize threads are running, the Executor
- * always prefers adding a new thread
- * rather than queuing.</li>
+ * <li>
+ *     If fewer than corePoolSize threads are running, the Executor always prefers adding a new thread rather than queuing.
+ *     -- 如果运行的线程数少于corePoolSize，则执行程序总是喜欢添加新线程，而不是排队。
+ * </li>
  *
- * <li> If corePoolSize or more threads are running, the Executor
- * always prefers queuing a request rather than adding a new
- * thread.</li>
+ * <li>
+ *     If corePoolSize or more threads are running, the Executor always prefers queuing a request rather than adding a new thread.
+ *     -- 如果正在运行的线程等于或者多于corePoolSize，则执行程序总是更喜欢对请求进行排队，而不是添加新线程。
+ * </li>
  *
- * <li> If a request cannot be queued, a new thread is created unless
- * this would exceed maximumPoolSize, in which case, the task will be
- * rejected.</li>
+ * <li>
+ *     If a request cannot be queued, a new thread is created unless this would exceed maximumPoolSize, in which case, the task will be rejected.
+ *     -- 如果无法将请求放入队列中，则将创建一个新线程，除非该线程超过了maximumPoolSize，在这种情况下，该任务将被拒绝。
+ * </li>
  *
  * </ul>
  *
  * There are three general strategies for queuing:
+ * -- 有三种一般的排队策略：
  * <ol>
  *
- * <li> <em> Direct handoffs.</em> A good default choice for a work
- * queue is a {@link SynchronousQueue} that hands off tasks to threads
- * without otherwise holding them. Here, an attempt to queue a task
- * will fail if no threads are immediately available to run it, so a
- * new thread will be constructed. This policy avoids lockups when
- * handling sets of requests that might have internal dependencies.
- * Direct handoffs generally require unbounded maximumPoolSizes to
- * avoid rejection of new submitted tasks. This in turn admits the
- * possibility of unbounded thread growth when commands continue to
- * arrive on average faster than they can be processed.  </li>
+ * <li>
+ *     <em> Direct handoffs.</em> -- 直接交接
  *
- * <li><em> Unbounded queues.</em> Using an unbounded queue (for
- * example a {@link LinkedBlockingQueue} without a predefined
- * capacity) will cause new tasks to wait in the queue when all
- * corePoolSize threads are busy. Thus, no more than corePoolSize
- * threads will ever be created. (And the value of the maximumPoolSize
- * therefore doesn't have any effect.)  This may be appropriate when
- * each task is completely independent of others, so tasks cannot
- * affect each others execution; for example, in a web page server.
- * While this style of queuing can be useful in smoothing out
- * transient bursts of requests, it admits the possibility of
- * unbounded work queue growth when commands continue to arrive on
- * average faster than they can be processed.  </li>
+ *     A good default choice for a work queue is a {@link SynchronousQueue} that hands off tasks to threads without otherwise holding them.
+ *     -- {@link SynchronousQueue}是工作队列的一个很好的默认选择，它可以将任务移交给线程，而不必另外保留它们。
  *
- * <li><em>Bounded queues.</em> A bounded queue (for example, an
- * {@link ArrayBlockingQueue}) helps prevent resource exhaustion when
- * used with finite maximumPoolSizes, but can be more difficult to
- * tune and control.  Queue sizes and maximum pool sizes may be traded
- * off for each other: Using large queues and small pools minimizes
- * CPU usage, OS resources, and context-switching overhead, but can
- * lead to artificially low throughput.  If tasks frequently block (for
- * example if they are I/O bound), a system may be able to schedule
- * time for more threads than you otherwise allow. Use of small queues
- * generally requires larger pool sizes, which keeps CPUs busier but
- * may encounter unacceptable scheduling overhead, which also
- * decreases throughput.  </li>
+ *     Here, an attempt to queue a task will fail if no threads are immediately available to run it, so a new thread will be constructed.
+ *     -- 在这里，如果没有立即可用的线程来运行任务，则尝试将任务排队将失败，因此将构造一个新线程。
+ *
+ *     This policy avoids lockups when handling sets of requests that might have internal dependencies.'
+ *     -- 在处理可能具有内部依赖项的请求集时，此策略避免了锁定。
+ *
+ *     Direct handoffs generally require unbounded maximumPoolSizes to avoid rejection of new submitted tasks.
+ *     -- 直接交接通常需要无限制的maximumPoolSizes，以避免拒绝新提交的任务。
+ *
+ *     This in turn admits the possibility of unbounded thread growth when commands continue to arrive on average faster than they can be processed.
+ *     -- 反过来，当平均而言，命令继续以比其处理速度更快的速度到达时，就可以实现无限线程增长的可能性。
+ * </li>
+ *
+ * <li>
+ *     <em> Unbounded queues.</em> -- 无限队列
+ *
+ *     Using an unbounded queue (for example a {@link LinkedBlockingQueue} without a predefined capacity) will cause new tasks to wait in the queue when all corePoolSize threads are busy.
+ *     -- 当所有corePoolSize线程都忙时，使用无限制的队列（例如，没有预定义容量的{@link LinkedBlockingQueue}）将导致新任务在队列中等待。
+ *
+ *     Thus, no more than corePoolSize threads will ever be created. (And the value of the maximumPoolSize therefore doesn't have any effect.)
+ *     -- 因此，将仅创建corePoolSize线程。 （因此，maximumPoolSize的值没有任何作用。）
+ *
+ *     This may be appropriate when each task is completely independent of others, so tasks cannot affect each others execution; for example, in a web page server.
+ *     -- 当每个任务完全独立于其他任务时，这可能是适当的，因此任务不会影响彼此的执行。例如，在网页服务器中。
+ *
+ *     While this style of queuing can be useful in smoothing out transient bursts of requests,
+ *     it admits the possibility of unbounded work queue growth when commands continue to arrive on average faster than they can be processed.
+ *     -- 尽管这种排队方式对于消除短暂的请求突发很有用，它承认当命令平均到达的速度比处理命令的速度快时，工作队列可能会无限增长。
+ * </li>
+ *
+ * <li>
+ *     <em>Bounded queues.</em> -- 有界队列
+ *
+ *     A bounded queue (for example, an{@link ArrayBlockingQueue}) helps prevent resource exhaustion when used with finite maximumPoolSizes, but can be more difficult to tune and control.
+ *     -- 当与有限的maximumPoolSizes一起使用时，有界队列（例如， link ArrayBlockingQueue}）有助于防止资源耗尽，但是调优和控制起来会更加困难。
+ *
+ *     Queue sizes and maximum pool sizes may be traded off for each other:
+ *     -- 队列大小和最大池大小可能会相互折衷
+ *
+ *     Using large queues and small pools minimizes CPU usage, OS resources, and context-switching overhead, but can lead to artificially low throughput.
+ *     -- 使用大队列和小池可最大程度地减少CPU使用率，操作系统资源和上下文切换开销，但可能导致人为地降低吞吐量。
+ *
+ *     If tasks frequently block (for example if they are I/O bound),a system may be able to schedule time for more threads than you otherwise allow.
+ *     -- 如果任务频繁阻塞（例如，如果它们受I / O约束），则系统可能能够安排比您原先允许的线程更多的时间。
+ *
+ *     Use of small queues generally requires larger pool sizes, which keeps CPUs busier but may encounter unacceptable scheduling overhead, which also decreases throughput.
+ *     -- 使用小队列通常需要更大的池大小，这会使CPU繁忙，但可能会遇到不可接受的调度开销，这也会降低吞吐量。
+ * </li>
  *
  * </ol>
  *
@@ -180,14 +221,13 @@ import java.util.*;
  *
  * <dt>Rejected tasks</dt>
  *
- * <dd>New tasks submitted in method {@link #execute(Runnable)} will be
- * <em>rejected</em> when the Executor has been shut down, and also when
- * the Executor uses finite bounds for both maximum threads and work queue
- * capacity, and is saturated.  In either case, the {@code execute} method
- * invokes the {@link
- * RejectedExecutionHandler#rejectedExecution(Runnable, ThreadPoolExecutor)}
- * method of its {@link RejectedExecutionHandler}.  Four predefined handler
- * policies are provided:
+ * <dd>
+ *     New tasks submitted in method {@link #execute(Runnable)} will be <em>rejected</em> when the Executor has been shut down, and also when the Executor uses finite bounds for both maximum threads and work queue capacity, and is saturated.
+ *     -- 当执行器关闭时(shutdown)，并且执行器对最大线程数和工作队列容量使用有限范围时，在方法{@link #execute（Runnable）}中提交的新任务将被<em>拒绝</ em>。已饱和。
+ *
+ *     In either case, the {@code execute} method invokes the {@link RejectedExecutionHandler#rejectedExecution(Runnable, ThreadPoolExecutor)} method of its {@link RejectedExecutionHandler}.
+ *
+ *     Four predefined handler policies are provided:
  *
  * <ol>
  *
@@ -213,47 +253,59 @@ import java.util.*;
  * It is possible to define and use other kinds of {@link
  * RejectedExecutionHandler} classes. Doing so requires some care
  * especially when policies are designed to work only under particular
- * capacity or queuing policies. </dd>
+ * capacity or queuing policies.
  *
- * <dt>Hook methods</dt>
+ * </dd>
  *
- * <dd>This class provides {@code protected} overridable
- * {@link #beforeExecute(Thread, Runnable)} and
- * {@link #afterExecute(Runnable, Throwable)} methods that are called
- * before and after execution of each task.  These can be used to
- * manipulate the execution environment; for example, reinitializing
- * ThreadLocals, gathering statistics, or adding log entries.
- * Additionally, method {@link #terminated} can be overridden to perform
- * any special processing that needs to be done once the Executor has
- * fully terminated.
+ * <dt>Hook methods</dt> -- 钩子方法
  *
- * <p>If hook or callback methods throw exceptions, internal worker
- * threads may in turn fail and abruptly terminate.</dd>
+ * <dd>
  *
- * <dt>Queue maintenance</dt>
+ *     This class provides {@code protected} overridable {@link #beforeExecute(Thread, Runnable)} and {@link #afterExecute(Runnable, Throwable)} methods that are called before and after execution of each task.
+ *     -- 此类提供{@code protected}可重写的{@link #beforeExecute（Thread，Runnable）}和{@link #afterExecute（Runnable，Throwable）}方法，这些方法在每个任务执行前后被调用。
  *
- * <dd>Method {@link #getQueue()} allows access to the work queue
- * for purposes of monitoring and debugging.  Use of this method for
- * any other purpose is strongly discouraged.  Two supplied methods,
- * {@link #remove(Runnable)} and {@link #purge} are available to
- * assist in storage reclamation when large numbers of queued tasks
- * become cancelled.</dd>
+ *     These can be used to manipulate the execution environment; for example, reinitializing ThreadLocals, gathering statistics, or adding log entries.
+ *     -- 这些可以用来操纵执行环境。例如，重新初始化ThreadLocals，收集统计信息或添加日志条目。
+ *
+ *     Additionally, method {@link #terminated} can be overridden to perform any special processing that needs to be done once the Executor has fully terminated.
+ *     -- 另外，一旦执行程序完全终止，方法{@link #terminated}可以被覆盖以执行需要执行的任何特殊处理。
+ *
+ *     If hook or callback methods throw exceptions, internal worker threads may in turn fail and abruptly terminate.
+ *     -- 如果钩子或回调方法引发异常，内部工作线程可能进而失败并突然终止。
+ *
+ * </dd>
+ *
+ * <dt>Queue maintenance</dt> -- 队列维
+ *
+ * <dd>
+ *
+ *     Method {@link #getQueue()} allows access to the work queue for purposes of monitoring and debugging.
+ *     -- 方法{@link #getQueue（）}允许访问工作队列，以进行监视和调试。
+ *
+ *     Use of this method for any other purpose is strongly discouraged.
+ *     -- 强烈建议不要将此方法用于任何其他目的。
+ *
+ *     Two supplied methods, {@link #remove(Runnable)} and {@link #purge} are available to assist in storage reclamation when large numbers of queued tasks become cancelled.
+ *     -- 当取消大量排队的任务时，可以使用提供的两种方法{@link #remove（Runnable）}和{@link #purge}来帮助回收存储。
+ *
+ * </dd>
  *
  * <dt>Finalization</dt>
  *
- * <dd>A pool that is no longer referenced in a program <em>AND</em>
- * has no remaining threads will be {@code shutdown} automatically. If
- * you would like to ensure that unreferenced pools are reclaimed even
- * if users forget to call {@link #shutdown}, then you must arrange
- * that unused threads eventually die, by setting appropriate
- * keep-alive times, using a lower bound of zero core threads and/or
- * setting {@link #allowCoreThreadTimeOut(boolean)}.  </dd>
+ * <dd>
+ *
+ *     A pool that is no longer referenced in a program <em>AND</em> has no remaining threads will be {@code shutdown} automatically.
+ *     -- 程序<em> AND </ em>中不再引用的没有剩余线程的池将自动{@code shutdown}。
+ *
+ *     If you would like to ensure that unreferenced pools are reclaimed even if users forget to call {@link #shutdown}, then you must arrange that unused threads eventually die, by setting appropriate keep-alive times, using a lower bound of zero core threads and/or setting {@link #allowCoreThreadTimeOut(boolean)}.
+ *     -- 如果即使在用户忘记调用{@link #shutdown}的情况下，如果您想确保回收未引用的池，则必须使用零核心线程的下限来设置适当的保持活动时间，以使未使用的线程最终消亡。和/或设置{@link #allowCoreThreadTimeOut（boolean）}。
+ *
+ * </dd>
  *
  * </dl>
  *
- * <p><b>Extension example</b>. Most extensions of this class
- * override one or more of the protected hook methods. For example,
- * here is a subclass that adds a simple pause/resume feature:
+ * <p><b>Extension example</b>. Most extensions of this class override one or more of the protected hook methods. For example,here is a subclass that adds a simple pause/resume feature:
+ * -- 这是一个添加简单暂停/恢复功能的子类：
  *
  *  <pre> {@code
  * class PausableThreadPoolExecutor extends ThreadPoolExecutor {
@@ -1108,7 +1160,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * Package-protected for use by ScheduledThreadPoolExecutor.
      */
     final void reject(Runnable command) {
-        handler.rejectedExecution(command, this);
+        //        handler.rejectedExecution(command, this);
     }
 
     /**
@@ -2541,6 +2593,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * remove them. Invoking this method instead tries to remove them now.
      * However, this method may fail to remove tasks in
      * the presence of interference by other threads.
+     *
+     * 清除
      */
     public void purge() {
         final BlockingQueue<Runnable> q = workQueue;
@@ -2810,7 +2864,13 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          * @param r the runnable task requested to be executed
          * @param e the executor attempting to execute this task
          */
-        public void rejectedExecution(Runnable r, ThreadPoolExecutor e) {
+        //        public void rejectedExecution(Runnable r, ThreadPoolExecutor e) {
+        //            if (!e.isShutdown()) {
+        //                r.run();
+        //            }
+        //        }
+        @Override
+        public void rejectedExecution(Runnable r, java.util.concurrent.ThreadPoolExecutor e) {
             if (!e.isShutdown()) {
                 r.run();
             }
@@ -2836,7 +2896,13 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          * @param e the executor attempting to execute this task
          * @throws RejectedExecutionException always
          */
-        public void rejectedExecution(Runnable r, ThreadPoolExecutor e) {
+        //        public void rejectedExecution(Runnable r, ThreadPoolExecutor e) {
+        //            throw new RejectedExecutionException("Task " + r.toString() +
+        //                    " rejected from " +
+        //                    e.toString());
+        //        }
+        @Override
+        public void rejectedExecution(Runnable r, java.util.concurrent.ThreadPoolExecutor e) {
             throw new RejectedExecutionException("Task " + r.toString() +
                     " rejected from " +
                     e.toString());
@@ -2861,7 +2927,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          * @param r the runnable task requested to be executed
          * @param e the executor attempting to execute this task
          */
-        public void rejectedExecution(Runnable r, ThreadPoolExecutor e) {
+        //        public void rejectedExecution(Runnable r, ThreadPoolExecutor e) {
+        //        }
+        @Override
+        public void rejectedExecution(Runnable r, java.util.concurrent.ThreadPoolExecutor executor) {
+
         }
     }
 
@@ -2887,7 +2957,14 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          * @param r the runnable task requested to be executed
          * @param e the executor attempting to execute this task
          */
-        public void rejectedExecution(Runnable r, ThreadPoolExecutor e) {
+        //        public void rejectedExecution(Runnable r, ThreadPoolExecutor e) {
+        //            if (!e.isShutdown()) {
+        //                e.getQueue().poll();
+        //                e.execute(r);
+        //            }
+        //        }
+        @Override
+        public void rejectedExecution(Runnable r, java.util.concurrent.ThreadPoolExecutor e) {
             if (!e.isShutdown()) {
                 e.getQueue().poll();
                 e.execute(r);
