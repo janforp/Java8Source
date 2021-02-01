@@ -828,20 +828,22 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     private final AccessControlContext acc;
 
     /**
-     * Class Worker mainly maintains interrupt control state for
-     * threads running tasks, along with other minor bookkeeping.
-     * This class opportunistically extends AbstractQueuedSynchronizer
-     * to simplify acquiring and releasing a lock surrounding each
-     * task execution.  This protects against interrupts that are
-     * intended to wake up a worker thread waiting for a task from
-     * instead interrupting a task being run.  We implement a simple
-     * non-reentrant mutual exclusion lock rather than use
-     * ReentrantLock because we do not want worker tasks to be able to
-     * reacquire the lock when they invoke pool control methods like
-     * setCorePoolSize.  Additionally, to suppress interrupts until
-     * the thread actually starts running tasks, we initialize lock
-     * state to a negative value, and clear it upon start (in
-     * runWorker).
+     * Class Worker mainly maintains interrupt control state for threads running tasks, along with other minor bookkeeping.
+     * --- Class Worker主要维护线程运行任务的中断控制状态，以及其他次要簿记。
+     *
+     * This class opportunistically extends AbstractQueuedSynchronizer to simplify acquiring and releasing a lock surrounding each task execution.
+     * --- 此类适时地扩展了AbstractQueuedSynchronizer以简化获取和释放围绕每个任务执行的锁。
+     *
+     * This protects against interrupts that are intended to wake up a worker thread waiting for a task from instead interrupting a task being run.
+     * --- TODO 这可以防止旨在唤醒工作线程等待任务的中断，而不是中断正在运行的任务。?????
+     *
+     * We implement a simple non-reentrant mutual exclusion lock rather than use ReentrantLock
+     * because we do not want worker tasks to be able to reacquire the lock when they invoke pool control methods like setCorePoolSize.
+     * --- 我们实现了一个简单的非可重入互斥锁，而不是使用ReentrantLock，因为我们不希望辅助任务在调用诸如setCorePoolSize之类的池控制方法时能够重新获取该锁。
+     *
+     * Additionally, to suppress interrupts until the thread actually starts running tasks,
+     * we initialize lock state to a negative value, and clear it upon start (in runWorker).
+     * --- TODO 另外，为了抑制直到线程真正开始运行任务之前的中断，我们将锁定状态初始化为负值，并在启动时将其清除（在runWorker中）。？？？？
      */
     private final class Worker extends AbstractQueuedSynchronizer implements Runnable {
         //Worker采用了AQS的独占模式
@@ -869,12 +871,16 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          * 当执行完firstTask后，会到queue中去获取下一个任务。
          *
          * Initial task to run.  Possibly null. -- 要运行的初始任务。可能为null。
+         *
+         * @see ThreadPoolExecutor#runWorker(util.concurrent.ThreadPoolExecutor.Worker)
          */
         Runnable firstTask;
 
         /**
          * 记录当前worker所完成任务数量。
          * Per-thread task counter
+         *
+         * worker 终止的时候会累加到线程池的计数中
          */
         volatile long completedTasks;
 
@@ -887,16 +893,19 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          */
         Worker(Runnable firstTask) {
             //TODO 设置AQS独占模式为初始化中状态，这个时候 不能被抢占锁。
-            setState(-1); // inhibit interrupts until runWorker
+            setState(-1); // inhibit interrupts until runWorker --- 禁止中断，直到runWorker
             this.firstTask = firstTask;
             //使用线程工厂创建了一个线程，并且将当前worker 指定为 Runnable，
             //也就是说当thread启动的时候，会以worker.run()为入口。
+            /**
+             * @see Worker#run()
+             */
             this.thread = getThreadFactory().newThread(this);
         }
 
         /**
          * 当worker启动时，会执行run()
-         * Delegates main run loop to outer runWorker
+         * Delegates main run loop to outer runWorker --- 将主运行循环委托给外部runWorker
          *
          * 线程启动之后会调用该方法
          *
@@ -905,26 +914,46 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          */
         public void run() {
             //ThreadPoolExecutor->runWorker() 这个是核心方法，等后面分析worker启动后逻辑时会以这里切入。
+            //该方法其实就是在五险循环，直到没有任务
             runWorker(this);
         }
 
-        // Lock methods
+        // Lock methods --- 锁方法
         //
         // The value 0 represents the unlocked state.
         // The value 1 represents the locked state.
-        //判断当前worker的独占锁是否被独占。
-        //0 表示未被占用
-        //1 表示已占用
+        // 判断当前worker的独占锁是否被独占。
+        // 0 表示未被占用
+        // 1 表示已占用
+
+        /**
+         * 独占锁是否被占用
+         *
+         * The value 0 represents the unlocked state.
+         * The value 1 represents the locked state.
+         * 判断当前worker的独占锁是否被独占。
+         * 0 表示未被占用
+         * 1 表示已占用
+         *
+         * @return
+         */
         protected boolean isHeldExclusively() {
             return getState() != 0;
         }
 
-        //尝试去占用worker的独占锁
-        //返回值 表示是否抢占成功
+        /**
+         * 尝试去占用worker的独占锁
+         * 返回值 表示是否抢占成功
+         *
+         * @param unused 没有使用
+         * @return 成功失败
+         * @see AbstractQueuedSynchronizer#tryAcquire(int)
+         */
         protected boolean tryAcquire(int unused) {
-            //使用CAS修改 AQS中的 state ，期望值为0(0时表示未被占用），修改成功表示当前线程抢占成功
-            //那么则设置 ExclusiveOwnerThread 为当前线程。
+            //使用CAS修改 AQS中的 state ，期望值为0(0时表示未被占用），
+            //修改成功表示当前线程抢占成功
             if (compareAndSetState(0, 1)) {
+                //抢占独占锁成功之后
                 //设置 ExclusiveOwnerThread 为当前线程。
                 setExclusiveOwnerThread(Thread.currentThread());
                 return true;
@@ -932,32 +961,51 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             return false;
         }
 
-        //外部不会直接调用这个方法 这个方法是AQS 内调用的，
-        //外部调用unlock时 ，unlock->AQS.release() ->tryRelease()
+        /**
+         * 外部不会直接调用这个方法 这个方法是AQS 内调用的，
+         * 外部调用unlock时 ，unlock->AQS.release() ->tryRelease()
+         *
+         * @param unused
+         * @return
+         */
         protected boolean tryRelease(int unused) {
+            //表示独占线程不存在
             setExclusiveOwnerThread(null);
+            //设置锁状态位0：表示没有哦被占用
             setState(0);
             return true;
         }
 
-        //加锁，加锁失败时，会阻塞当前线程，直到获取到锁为止。
+        /**
+         * 加锁，加锁失败时，会阻塞当前线程，直到获取到锁为止。
+         */
         public void lock() {
             acquire(1);
         }
 
-        //尝试去加锁，如果当前锁是未被持有状态，那么加锁成功后 会返回true，否则不会阻塞当前线程，直接返回false.
+        /**
+         * 尝试去加锁，如果当前锁是未被持有状态，那么加锁成功后 会返回true，否则不会阻塞当前线程，直接返回false.
+         *
+         * @return
+         */
         public boolean tryLock() {
             return tryAcquire(1);
         }
 
-        //一般情况下，咱们调用unlock 要保证 当前线程是持有锁的。
-        //特殊情况，当worker的state == -1 时，调用unlock 表示初始化state 设置state == 0
-        //启动worker之前会先调用unlock()这个方法。会强制刷新ExclusiveOwnerThread = null State=0
+        /**
+         * 一般情况下，咱们调用unlock 要保证 当前线程是持有锁的。
+         * 特殊情况，当worker的state == -1 时，调用unlock 表示初始化state 设置state == 0
+         * 启动worker之前会先调用unlock()这个方法。会强制刷新ExclusiveOwnerThread = null State=0
+         */
         public void unlock() {
             release(1);
         }
 
-        //就是返回当前worker的lock是否被占用。
+        /**
+         * 就是返回当前worker的lock是否被占用。
+         *
+         * @return
+         */
         public boolean isLocked() {
             return isHeldExclusively();
         }
@@ -974,8 +1022,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         }
     }
 
+    /************** Work 类结束了  ******************/
+
     /*
      * Methods for setting control state
+     * --- 设置控制状态的方法
      */
 
     /**
