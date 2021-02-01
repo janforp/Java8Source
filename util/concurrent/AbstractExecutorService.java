@@ -97,6 +97,7 @@ public abstract class AbstractExecutorService implements ExecutorService {
             throw new NullPointerException();
         }
         RunnableFuture<T> ftask = newTaskFor(task, result);
+        //底层还是 executor
         execute(ftask);
         return ftask;
     }
@@ -110,6 +111,7 @@ public abstract class AbstractExecutorService implements ExecutorService {
             throw new NullPointerException();
         }
         RunnableFuture<T> ftask = newTaskFor(task);
+        //底层还是 executor
         execute(ftask);
         return ftask;
     }
