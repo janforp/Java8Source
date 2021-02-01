@@ -1329,16 +1329,20 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      */
 
     /**
-     * Checks if a new worker can be added with respect to current
-     * pool state and the given bound (either core or maximum). If so,
-     * the worker count is adjusted accordingly, and, if possible, a
-     * new worker is created and started, running firstTask as its
-     * first task. This method returns false if the pool is stopped or
-     * eligible to shut down. It also returns false if the thread
-     * factory fails to create a thread when asked.  If the thread
-     * creation fails, either due to the thread factory returning
-     * null, or due to an exception (typically OutOfMemoryError in
-     * Thread.start()), we roll back cleanly.
+     * Checks if a new worker can be added with respect to current pool state and the given bound (either core or maximum).
+     * --- 检查是否可以针对当前池状态和给定的边界（核心或最大值）添加新的工作程序。
+     *
+     * If so, the worker count is adjusted accordingly, and, if possible, a new worker is created and started, running firstTask as its first task.
+     * --- 如果是这样，则会相应地调整工作程序计数，并且如果可能，会创建并启动一个新的工作程序，并运行firstTask作为其第一个任务。
+     *
+     * This method returns false if the pool is stopped or eligible to shut down.
+     * --- 如果池已停止或有资格关闭，则此方法返回false。
+     *
+     * It also returns false if the thread factory fails to create a thread when asked.
+     * -- 如果在询问时线程工厂无法创建线程，则它还会返回false。
+     *
+     * If the thread creation fails, either due to the thread factory returning null, or due to an exception (typically OutOfMemoryError in Thread.start()), we roll back cleanly.
+     * --- 如果线程创建失败（由于线程工厂返回null或由于异常（通常是Thread.start（）中的OutOfMemoryError）），我们将进行干净的回滚。
      *
      * @param firstTask the task the new thread should run first (or
      * null if none). Workers are created with an initial first task
@@ -1377,7 +1381,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     private boolean addWorker(Runnable firstTask, boolean core) {
         retry:
         //自旋
-        //判断当前线程池状态是否允许创建线程的事情。只有外层循环满足才能进入内层循环
+        //外层for循环目的：判断当前线程池状态是否允许创建线程。只有外层循环满足才能进入内层循环
         for (; ; ) {
             //获取当前ctl值保存到c
             int c = ctl.get();
@@ -1399,8 +1403,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                             //排除掉这种情况，当前线程池是SHUTDOWN状态，但是队列里面还有任务尚未处理完，这个时候是允许添加worker，但是不允许再次提交task。
                             !(rs == SHUTDOWN //当前线程池状态是SHUTDOWN状态
                                     && firstTask == null //提交的任务是空，addWorker这个方法可能不是execute调用的
-                                    && !workQueue.isEmpty())//当前任务队列不是空
-            ) {
+                                    && !workQueue.isEmpty())) {//当前任务队列不是空
 
                 //什么情况下回返回false?
                 //rs > SHUTDOWN
@@ -1449,8 +1452,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 }
                 // else CAS failed due to workerCount change; retry inner loop
                 // 否则CAS由于workerCount更改而失败；重试内部循环
-            }
-        }
+            }//内层for循环结束
+        }//外层for循环结束
 
         //表示创建的worker是否已经启动，false未启动  true启动
         boolean workerStarted = false;
@@ -1523,6 +1526,12 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 //条件失败：说明线程池在lock之前，线程池状态发生了变化，导致添加失败。
                 if (workerAdded) {
                     //成功后，则将创建的worker启动，线程启动。
+                    /**
+                     * TODO 这里真正的把线程启动起来！！！！！！
+                     * 启动之后就会执行 run 方法
+                     * @see Worker#run() 而run方法真正会执行 {@link ThreadPoolExecutor#runWorker(util.concurrent.ThreadPoolExecutor.Worker)}方法
+                     * @see ThreadPoolExecutor#runWorker(util.concurrent.ThreadPoolExecutor.Worker) 在该方法中，该线程一直循环，拿到任务就去执行，执行完又去拿任务
+                     */
                     t.start();
                     //启动标记设置为true
                     workerStarted = true;
@@ -2193,9 +2202,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         int c = ctl.get();
 
         //workerCountOf(c)：获取出当前线程数量
-        if (workerCountOf(c) < corePoolSize) {//条件成立：表示当前线程数量小于核心线程数，此次提交任务，直接创建一个新的worker，对应线程池中多了一个新的线程。
+        if (workerCountOf(c) < corePoolSize) {
+            //条件成立：表示当前线程池中的线程数量小于核心线程数，此次提交任务，直接创建一个新的worker，对应线程池中多了一个新的线程。
+
             //addWorker 即为创建线程的过程，会创建worker对象，并且将command作为firstTask
-            //core == true 表示采用核心线程数量限制  false表示采用 maximumPoolSize
+            //core == true 表示采用核心线程数量限制  false表示采用 maximumPoolSize，具体可以阅读 addWorker 方法
             if (addWorker(command, true)) {
                 //创建成功后，直接返回。addWorker方法里面会启动新创建的worker，将firstTask执行。
                 return;
