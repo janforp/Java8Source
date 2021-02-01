@@ -1022,7 +1022,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         }
     }
 
-    /************** Work 类结束了  ******************/
+    /************** Worker 类结束了  ******************/
 
     /*
      * Methods for setting control state
