@@ -539,7 +539,9 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     }
 
     /**
-     * 用在重置当前线程池ctl值时  会用到,可以理解为把之前分开的ctl合并为分开之前的ctl
+     * 用在重置当前线程池ctl值时  会用到,
+     *
+     * !!!!!!!可以理解为把之前分开的ctl合并为分开之前的ctl
      *
      * 假设：
      * rs       = 111 000000000000000000  RUNNING
@@ -1012,7 +1014,15 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
         void interruptIfStarted() {
             Thread t;
-            if (getState() >= 0 && (t = thread) != null && !t.isInterrupted()) {
+            if (
+                //0 或者 1
+                    getState() >= 0
+                            &&
+                            //线程不为null
+                            (t = thread) != null
+                            &&
+                            //并且当前线程t的中断状态位false
+                            !t.isInterrupted()) {
                 try {
                     //未中断则发一个中断信号
                     t.interrupt();
@@ -1030,10 +1040,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      */
 
     /**
-     * Transitions runState to given target, or leaves it alone if
-     * already at least the given target.
+     * Transitions runState to given target, or leaves it alone if already at least the given target.
      *
-     * @param targetState the desired state, either SHUTDOWN or STOP
+     * -- 将runState转换为给定目标，但是如果当前的状态已经 >= targetState ，则什么都不做
+     *
+     * @param targetState the desired state, either SHUTDOWN or STOP -- 目标状态
      * (but not TIDYING or TERMINATED -- use tryTerminate for that)
      */
     private void advanceRunState(int targetState) {
@@ -1044,9 +1055,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             if (
                 //条件成立：假设targetState == SHUTDOWN，说明 当前线程池状态是 >= SHUTDOWN
                 //条件不成立：假设targetState == SHUTDOWN ，说明当前线程池状态是RUNNING。
+                //如果当前状态已经 >= targetState 则维持当前的状态不变
                     runStateAtLeast(c, targetState)
                             ||
-
+                            //否则，使用cas改状态
                             //前提：假设targetState == SHUTDOWN，说明当前线程池状态是RUNNING。
                             ctl.compareAndSet(c, ctlOf(targetState, workerCountOf(c)))) {
                 break;
@@ -1055,19 +1067,16 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     }
 
     /**
-     * Transitions to（过渡到） TERMINATED state if either (SHUTDOWN and pool
-     * and queue empty) or (STOP and pool empty).  If otherwise
-     * eligible（合格） to terminate but workerCount is nonzero, interrupts an
-     * idle worker to ensure that shutdown signals propagate（传播）. This
-     * method must be called following any action that might make
-     * termination possible -- reducing worker count or removing tasks
-     * from the queue during shutdown. The method is non-private to
-     * allow access from ScheduledThreadPoolExecutor.
+     * Transitions to TERMINATED state if either (SHUTDOWN and pool and queue empty) or (STOP and pool empty).
+     * --- TODO 如果（状态位 SHUTDOWN 并且队列为空）或（状态为STOP 并且线程池为空），则转换为TERMINATED状态。？？？？？
      *
-     * 如果（SHUTDOWN和池和队列为空）或（STOP和池为空），则转换为TERMINATED状态。
-     * 如果可以终止，但workerCount非零，则中断空闲的worker，以确保关闭信号传播。
-     * 必须在可能终止操作的任何操作之后调用此方法-减少工作人员计数或在关闭过程中从队列中删除任务。
-     * 该方法是非私有的，以允许从ScheduledThreadPoolExecutor访问。
+     * If otherwise eligible to terminate but workerCount is nonzero, interrupts an idle worker to ensure that shutdown signals propagate.
+     * --- 如果可以终止，但workerCount非零，则中断空闲的worker，以确保关闭信号传播。
+     *
+     * This method must be called following any action that might make termination possible -- reducing worker count or removing tasks from the queue during shutdown.
+     * --- 必须在可能终止操作的任何操作之后调用此方法-减少worker计数或在关闭期间从队列中删除任务。
+     *
+     * The method is non-private to allow access from ScheduledThreadPoolExecutor.
      */
     final void tryTerminate() {
         //自旋
@@ -2005,8 +2014,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             long keepAliveTime,
             TimeUnit unit,
             BlockingQueue<Runnable> workQueue) {
-        this(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue,
-                Executors.defaultThreadFactory(), defaultHandler);
+        this(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, Executors.defaultThreadFactory(), defaultHandler);
     }
 
     /**
@@ -2139,12 +2147,16 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     }
 
     /**
-     * Executes the given task sometime in the future.  The task
-     * may execute in a new thread or in an existing pooled thread.
+     * Executes the given task sometime in the future.
      *
-     * If the task cannot be submitted for execution, either because this
-     * executor has been shutdown or because its capacity has been reached,
+     * The task may execute in a new thread or in an existing pooled thread.
+     * --- 该任务可以在新线程或现有池线程中执行。
+     *
+     * If the task cannot be submitted for execution, either because this executor has been shutdown or because its capacity has been reached,
+     * --- 如果由于该执行器已关闭或已达到其能力而无法提交任务执行，
+     *
      * the task is handled by the current {@code RejectedExecutionHandler}.
+     * --- 任务由当前的{@code RejectedExecutionHandler}处理。
      *
      * @param command the task to execute 要执行的任务，可以是普通的Runnable 实现类，也可以是 FutureTask
      * @throws RejectedExecutionException at discretion of {@code RejectedExecutionHandler}, if the task cannot be accepted for execution
@@ -2156,34 +2168,25 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             throw new NullPointerException();
         }
         /**
-         * 分3个步骤进行：
-         *
-         * 1.如果正在运行的线程少于corePoolSize个数，尝试使用给定命令作为其第一个任务来启动新线程。
-         *   对addWorker的调用从原子上检查runState和workerCount，从而通过返回false来防止在不应该添加线程的情况下发出虚假警报。
-         *
-         * 2.如果任务可以成功排队，那么我们仍然需要仔细检查是否应该添加线程（因为现有线程自上次检查后就死掉了）
-         *   或自从进入此方法以后该池已关闭。因此，我们重新检查状态，并在必要时回滚队列（如果已停止），或者在没有线程的情况下启动新线程。
-         *
          * 3.如果我们无法将任务排队，则尝试添加一个新线程。如果失败，我们知道我们已关闭或已饱和，因此拒绝该任务。
          *
          * Proceed in 3 steps:
          *
-         * 1. If fewer than corePoolSize threads are running, try to
-         * start a new thread with the given command as its first
-         * task.  The call to addWorker atomically checks runState and
-         * workerCount, and so prevents false alarms that would add
-         * threads when it shouldn't, by returning false.
+         * 1. If fewer than corePoolSize threads are running, try to start a new thread with the given command as its first task.
+         * ---如果正在运行的线程少于corePoolSize个，尝试使用给定 任务 作为其 first task 来启动新线程。
          *
-         * 2. If a task can be successfully queued, then we still need
-         * to double-check whether we should have added a thread
-         * (because existing ones died since last checking) or that
-         * the pool shut down since entry into this method. So we
-         * recheck state and if necessary roll back the enqueuing if
-         * stopped, or start a new thread if there are none.
+         *    The call to addWorker atomically checks runState and workerCount,
+         *    and so prevents false alarms that would add threads when it shouldn't, by returning false.
+         *--- 对addWorker的调用从原子上检查runState和workerCount，从而通过返回false来防止在不应该添加线程的情况下发出虚假警报。
          *
-         * 3. If we cannot queue task, then we try to add a new
-         * thread.  If it fails, we know we are shut down or saturated（达到了最大线程数量）
-         * and so reject the task.
+         * 2. If a task can be successfully queued, then we still need to double-check whether we should have added a thread (because existing ones died since last checking) or that the pool shut down since entry into this method.
+         * ---如果一个任务可以成功入队，那么我们仍然需要仔细检查是否应该添加一个线程（因为现有线程自上次检查后就死掉了）或自从进入该方法以来该池已关闭。
+         *
+         * So we recheck state and if necessary roll back the enqueuing if stopped, or start a new thread if there are none.
+         * --- 因此，我们重新检查状态，并在必要时回滚队列（如果已停止），或者在没有线程的情况下启动新线程。
+         *
+         * 3. If we cannot queue task, then we try to add a new thread.  If it fails, we know we are shut down or saturated and so reject the task.
+         * --- 如果我们无法将任务排队，则尝试添加一个新线程。如果失败，我们知道我们已关闭或已饱和，因此拒绝该任务。
          */
 
         //获取ctl最新值赋值给c，ctl ：高3位 表示线程池状态，低29位表示当前线程池线程数量。
