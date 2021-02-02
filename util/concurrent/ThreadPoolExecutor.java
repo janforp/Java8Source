@@ -1413,6 +1413,9 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             }
             //上面这些代码，就是判断 当前线程池状态 是否允许添加线程。
 
+            //运行到这里：（线程池状态为RUNNING）或者（状态为SHUTDOWN，并且 firstTask 为null，并且 队列还没有空）
+            //说明还可以继续往下
+
             //内部自旋
             //获取创建线程令牌的过程。
             for (; ; ) {
@@ -1429,12 +1432,14 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     return false;
                 }
 
-                //条件成立：说明记录线程数量已经加1成功，相当于申请到了一块令牌。
                 //条件失败：说明可能有其它线程，修改过ctl这个值了。
                 //失败的时候可能发生过什么事？
                 //1.其它线程execute() 申请过令牌了，在这之前。导致CAS失败
-                //2.外部线程可能调用过 shutdown() 或者 shutdownNow() 导致线程池状态发生变化了，咱们知道 ctl 高3位表示状态，状态改变后，cas也会失败（因为期望值变化了）。
+                //2.外部线程可能调用过 shutdown() 或者 shutdownNow() 导致线程池状态发生变化了，
+                //咱们知道 ctl 高3位表示状态，状态改变后，cas也会失败（因为期望值变化了）。
                 if (compareAndIncrementWorkerCount(c)) {
+                    //条件成立：说明记录线程数量已经加1成功，相当于申请到了一块令牌。
+
                     //进入到这里面，一定是cas成功啦！申请到令牌了
                     //直接跳出了 retry 外部这个for自旋。
 
@@ -1454,6 +1459,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 // 否则CAS由于workerCount更改而失败；重试内部循环
             }//内层for循环结束
         }//外层for循环结束
+
+        //执行到此处：说明 ctl 成功 +1
 
         //表示创建的worker是否已经启动，false未启动  true启动
         boolean workerStarted = false;
@@ -1528,7 +1535,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     //成功后，则将创建的worker启动，线程启动。
                     /**
                      * TODO 这里真正的把线程启动起来！！！！！！
-                     * 启动之后就会执行 run 方法
+                     * 启动之后就会执行 run {@link Worker#run()} 方法,而 run方法中会调用 {@link ThreadPoolExecutor#runWorker}方法,而runWorker方法会调用该方法
                      * @see Worker#run() 而run方法真正会执行 {@link ThreadPoolExecutor#runWorker(util.concurrent.ThreadPoolExecutor.Worker)}方法
                      * @see ThreadPoolExecutor#runWorker(util.concurrent.ThreadPoolExecutor.Worker) 在该方法中，该线程一直循环，拿到任务就去执行，执行完又去拿任务
                      */
@@ -2518,10 +2525,14 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     }
 
     /**
-     * Starts a core thread, causing it to idly wait for work. This
-     * overrides the default policy of starting core threads only when
-     * new tasks are executed. This method will return {@code false}
-     * if all core threads have already been started.
+     * Starts a core thread, causing it to idly wait for work.
+     * -- 启动一个核心线程，使其闲置地等待工作。
+     *
+     * This overrides the default policy of starting core threads only when new tasks are executed.
+     * -- 这将覆盖仅在执行新任务时启动核心线程的默认策略。
+     *
+     * This method will return {@code false} if all core threads have already been started.
+     * -- 如果所有核心线程均已启动，则此方法将返回{@code false}。
      *
      * @return {@code true} if a thread was started
      */
@@ -2530,22 +2541,25 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     }
 
     /**
-     * Same as prestartCoreThread except arranges that at least one
-     * thread is started even if corePoolSize is 0.
+     * Same as prestartCoreThread except arranges that at least one thread is started even if corePoolSize is 0.
+     * -- 与prestartCoreThread相同，除了安排即使corePoolSize为0至少启动一个线程。
      */
     void ensurePrestart() {
         int wc = workerCountOf(ctl.get());
         if (wc < corePoolSize) {
             addWorker(null, true);
         } else if (wc == 0) {
+            //如果设置的核心线程数为0，则启动一个非核心线程
             addWorker(null, false);
         }
     }
 
     /**
-     * Starts all core threads, causing them to idly wait for work. This
-     * overrides the default policy of starting core threads only when
-     * new tasks are executed.
+     * Starts all core threads, causing them to idly wait for work.
+     * -- 启动一个核心线程，使其闲置地等待工作。
+     *
+     * This overrides the default policy of starting core threads only when new tasks are executed.
+     * -- 这将覆盖仅在执行新任务时启动核心线程的默认策略。
      *
      * @return the number of threads started
      */

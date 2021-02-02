@@ -1,28 +1,3 @@
-/*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
 package java.util;
 
 import java.io.IOException;
@@ -137,8 +112,8 @@ import java.util.function.Function;
  * @see Hashtable
  * @since 1.2
  */
-public class HashMap<K, V> extends AbstractMap<K, V>
-        implements Map<K, V>, Cloneable, Serializable {
+@SuppressWarnings("all")
+public class HashMap<K, V> extends AbstractMap<K, V> implements Map<K, V>, Cloneable, Serializable {
 
     private static final long serialVersionUID = 362498820763181265L;
 
@@ -677,8 +652,7 @@ public class HashMap<K, V> extends AbstractMap<K, V>
      * @param evict if false, the table is in creation mode.
      * @return previous value, or null if none
      */
-    final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
-            boolean evict) {
+    final V putVal(int hash, K key, V value, boolean onlyIfAbsent, boolean evict) {
         Node<K, V>[] tab; //引用当前hashMap散列表
         Node<K, V> p; //表示当前散列表的元素
         int n,//表示散列表的长度
@@ -732,8 +706,7 @@ public class HashMap<K, V> extends AbstractMap<K, V>
 
                         //当链表长度为 TREEIFY_THRESHOLD - 1 的时候需要树化
                         //为什么 -1 ？因为循环是从0开始的
-                        if (binCount >= TREEIFY_THRESHOLD - 1) // -1 for 1st
-                        {
+                        if (binCount >= TREEIFY_THRESHOLD - 1) {// -1 for 1st
                             //树化
                             treeifyBin(tab, hash);
                         }
@@ -757,7 +730,6 @@ public class HashMap<K, V> extends AbstractMap<K, V>
                 if (!onlyIfAbsent || oldValue == null) {
                     e.value = value;
                 }
-                //TODO
                 afterNodeAccess(e);
                 return oldValue;
             }
@@ -888,7 +860,6 @@ public class HashMap<K, V> extends AbstractMap<K, V>
                     //表示当前节点形成了链表
                     else { // preserve order
 
-                        //TODO
                         //低位链表：存放在扩容之后的数组下标位置与扩当前数组的下标位置一致
                         Node<K, V> loHead = null, loTail = null;
 
@@ -918,7 +889,6 @@ public class HashMap<K, V> extends AbstractMap<K, V>
                                 hiTail = e;
                             }
                         } while ((e = next) != null);
-                        //TODO
                         if (loTail != null) {
                             loTail.next = null;
                             newTab[j] = loHead;
