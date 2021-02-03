@@ -1472,6 +1472,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         try {
             //创建Worker
             //执行完后，线程应该是已经创建好了。(通过线程工厂)
+            /**
+             * setState(-1);
+             * this.firstTask = firstTask;
+             * this.thread = getThreadFactory().newThread(this);
+             */
             w = new Worker(firstTask);
 
             //将新创建的worker节点的线程 赋值给 t
@@ -1903,7 +1908,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 //worker设置独占锁 为当前线程
                 //为什么要设置独占锁呢？
                 //shutdown时会判断当前worker状态，根据独占锁是否空闲来判断当前worker是否正在工作。
-                w.lock();
+                w.lock();//标志该线程正在工作中！！！！
 
                 // If pool is stopping, ensure thread is interrupted;
                 // if not, ensure thread is not interrupted.  This
@@ -1917,6 +1922,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                                 runStateAtLeast(ctl.get(), STOP)
                                         ||
 
+                                        //TODO ??????
                                         // (Thread.interrupted() && runStateAtLeast(ctl.get(), STOP)) 在干吗呢？
                                         // 其实它在强制刷新当前线程的中断标记位 false，因为有可能上一次执行task时，业务代码里面将当前线程的中断标记位 设置为了 true，且没有处理
                                         // 这里一定要强制刷新一下。就不会再影响到后面的task了。
@@ -1986,7 +1992,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             }// while 循环结束，可能继续循环，可能往下执行
 
             //如果循环正常结束，就表示没有发生异常
-            //什么情况下，会来到这里？
+            //什么情况下，会来到这里
             //getTask()方法返回null时，说明当前线程应该执行退出逻辑了。
             //表示当前线程正常退出
             completedAbruptly = false;
@@ -2721,7 +2727,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      */
     public boolean remove(Runnable task) {
         boolean removed = workQueue.remove(task);
-        tryTerminate(); // In case SHUTDOWN and now empty
+        tryTerminate(); // In case SHUTDOWN and now empty - 如果SHUTDOWN且现在为空
         return removed;
     }
 
