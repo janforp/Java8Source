@@ -1602,14 +1602,14 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     }
 
     /**
-     * Performs cleanup and bookkeeping for a dying worker. Called
-     * only from worker threads. Unless completedAbruptly is set,
-     * assumes that workerCount has already been adjusted to account
-     * for exit.  This method removes thread from worker set, and
-     * possibly terminates the pool or replaces the worker if either
-     * it exited due to user task exception or if fewer than
-     * corePoolSize workers are running or queue is non-empty but
-     * there are no workers.
+     * Performs cleanup and bookkeeping for a dying worker.
+     *
+     * Called only from worker threads.
+     *
+     * Unless completedAbruptly is set, assumes that workerCount has already been adjusted to account for exit.
+     *
+     * This method removes thread from worker set, and possibly terminates the pool or replaces the worker if either it exited due to user task exception or if fewer than
+     * corePoolSize workers are running or queue is non-empty but there are no workers.
      *
      * @param w the worker 要退出的线程
      * @param completedAbruptly if the worker died due to user exception 是否突然退出,true表示执行任务的时候发生了异常
