@@ -1,57 +1,27 @@
-/*
- * ORACLE PROPRIETARY/CONFIDENTIAL. Use is subject to license terms.
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- */
-
-/*
- *
- *
- *
- *
- *
- * Written by Doug Lea with assistance from members of JCP JSR-166
- * Expert Group and released to the public domain, as explained at
- * http://creativecommons.org/publicdomain/zero/1.0/
- */
-
 package java.util.concurrent.locks;
-
-import java.util.concurrent.TimeUnit;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Date;
 
 import sun.misc.Unsafe;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Date;
+import java.util.concurrent.TimeUnit;
+
 /**
- * Provides a framework for implementing blocking locks and related
- * synchronizers (semaphores, events, etc) that rely on
- * first-in-first-out (FIFO) wait queues.  This class is designed to
- * be a useful basis for most kinds of synchronizers that rely on a
- * single atomic {@code int} value to represent state. Subclasses
- * must define the protected methods that change this state, and which
- * define what that state means in terms of this object being acquired
- * or released.  Given these, the other methods in this class carry
- * out all queuing and blocking mechanics. Subclasses can maintain
+ * Provides a framework for implementing blocking locks and related synchronizers (semaphores, events, etc) that rely on first-in-first-out (FIFO) wait queues.
+ * -- 提供一个框架，用于实现依赖于先进先出（FIFO）等待队列的阻塞锁和相关的同步器（信号灯，事件等）。
+ *
+ *
+ * This class is designed to be a useful basis for most kinds of synchronizers that rely on a single atomic {@code int} value to represent state.
+ * -- 此类旨在为大多数依赖单个原子{@code int}值表示状态的同步器提供有用的基础。
+ *
+ * Subclasses must define the protected methods that change this state, and which define what that state means in terms of this object being acquired or released.
+ * -- 子类必须定义更改此状态的受保护方法，并定义该状态对于获取或释放此对象而言意味着什么。
+ *
+ * Given these, the other methods in this class carry out all queuing and blocking mechanics.
+ * -- 鉴于这些，此类中的其他方法将执行所有排队和阻塞机制。
+ *
+ * Subclasses can maintain
  * other state fields, but only the atomically updated {@code int}
  * value manipulated using methods {@link #getState}, {@link
  * #setState} and {@link #compareAndSetState} is tracked with respect
@@ -288,9 +258,7 @@ import sun.misc.Unsafe;
  * @author Doug Lea
  * @since 1.5
  */
-public abstract class AbstractQueuedSynchronizer
-        extends AbstractOwnableSynchronizer
-        implements java.io.Serializable {
+public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchronizer implements java.io.Serializable {
 
     private static final long serialVersionUID = 7373984972572414691L;
 
@@ -546,6 +514,8 @@ public abstract class AbstractQueuedSynchronizer
         }
     }
 
+    //end of Node class
+
     /**
      * Head of the wait queue, lazily initialized.  Except for
      * initialization, it is modified only via method setHead.  Note:
@@ -605,12 +575,14 @@ public abstract class AbstractQueuedSynchronizer
         return unsafe.compareAndSwapInt(this, stateOffset, expect, update);
     }
 
-    // Queuing utilities
+    // Queuing utilities -- 排队工具
 
     /**
      * The number of nanoseconds for which it is faster to spin
      * rather than to use timed park. A rough estimate suffices
      * to improve responsiveness with very short timeouts.
+     *
+     * 旋转超时阈值
      */
     static final long spinForTimeoutThreshold = 1000L;
 
@@ -628,7 +600,7 @@ public abstract class AbstractQueuedSynchronizer
             Node t = tail;
             //1.当前队列是空队列  tail == null
             //说明当前 锁被占用，且当前线程 有可能是第一个获取锁失败的线程（当前时刻可能存在一批获取锁失败的线程...）
-            if (t == null) { // Must initialize
+            if (t == null) { // Must initialize -- 必须初始化
                 //作为当前持锁线程的 第一个 后继线程，需要做什么事？
                 //1.因为当前持锁的线程，它获取锁时，直接tryAcquire成功了，没有向 阻塞队列 中添加任何node，所以作为后继需要为它擦屁股..
                 //2.为自己追加node
@@ -715,8 +687,7 @@ public abstract class AbstractQueuedSynchronizer
         //获取当前节点的状态
         int ws = node.waitStatus;
 
-        if (ws < 0)//-1 Signal  改成零的原因：因为当前节点已经完成喊后继节点的任务了..
-        {
+        if (ws < 0) {//-1 Signal  改成零的原因：因为当前节点已经完成喊后继节点的任务了..
             compareAndSetWaitStatus(node, ws, 0);
         }
 
@@ -1381,9 +1352,8 @@ public abstract class AbstractQueuedSynchronizer
         //       2.2：acquireQueued 挂起当前线程   唤醒后相关的逻辑..
         //      acquireQueued 返回true 表示挂起过程中线程被中断唤醒过..  false 表示未被中断过..
         if (!tryAcquire(arg) &&
-                acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
-        //再次设置中断标记位 true
-        {
+                acquireQueued(addWaiter(Node.EXCLUSIVE), arg)) {
+            //再次设置中断标记位 true
             selfInterrupt();
         }
     }
