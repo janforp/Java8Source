@@ -1493,19 +1493,23 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
     //AQS#release方法
     //ReentrantLock.unlock() -> sync.release()【AQS提供的release】
     public final boolean release(int arg) {
-        //尝试释放锁，tryRelease 返回true 表示当前线程已经完全释放锁
+        //尝试释放锁，tryRelease 返回true 表示当前线程已经
+        // 完全!!!!!!!
+        // 释放锁
         //返回false，说明当前线程尚未完全释放锁..
         if (tryRelease(arg)) {
+            //完全释放锁！！！！！
 
             //回顾下head什么情况下会被创建出来？
             //当持锁线程未释放线程时，且持锁期间 有其它后续线程想要获取锁时(调用lock方法)，
             //后续线程发现获取不了锁，而且队列是空队列，此时后续线程会为当前持锁中的
             //线程 构建出来一个head节点，然后后续线程  会追加到 head 节点后面。
+
             Node h = head;
 
             //h != null成立，说明队列中的head节点已经初始化过了，ReentrantLock 在使用期间 发生过 多线程竞争了
             if (h != null
-                    //上面为true才会到下面
+                    //上面为true才会到下面，也就是 h != null 为 true
 
                     //h.waitStatus != 0成立，说明当前head后面一定插入过node节点。
                     && h.waitStatus != 0) {
