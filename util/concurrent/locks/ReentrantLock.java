@@ -181,6 +181,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
 
     /**
      * Sync object for non-fair locks
+     * 吞吐量会高些
      */
     static final class NonfairSync extends Sync {
 
