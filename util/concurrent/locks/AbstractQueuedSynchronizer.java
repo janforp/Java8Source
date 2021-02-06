@@ -258,6 +258,7 @@ import java.util.concurrent.TimeUnit;
  * @author Doug Lea
  * @since 1.5
  */
+@SuppressWarnings("all")
 public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchronizer implements java.io.Serializable {
 
     private static final long serialVersionUID = 7373984972572414691L;
@@ -690,20 +691,17 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
     /**
      * Wakes up node's successor, if one exists.
+     * -- 唤醒节点(参数node)的后继者（如果存在）。
      *
      * @param node the node
-     */
-
-    //AQS#unparkSuccessor
-
-    /**
-     * 唤醒当前节点的下一个节点。
+     * @see AbstractQueuedSynchronizer#release(int)
      */
     private void unparkSuccessor(Node node) {
         //获取当前节点的状态
         int ws = node.waitStatus;
 
-        if (ws < 0) {//-1 Signal  改成零的原因：因为当前节点已经完成喊后继节点的任务了..
+        if (ws < 0) {//-1 Signal
+            // 改成零的原因：因为当前节点已经完成喊后继节点的任务了..
             compareAndSetWaitStatus(node, ws, 0);
         }
 
@@ -712,17 +710,28 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
         //条件一：
         //s 什么时候等于null？
-        //1.当前节点就是tail节点时  s == null。
-        //2.当新节点入队未完成时（1.设置新节点的prev 指向pred  2.cas设置新节点为tail   3.（未完成）pred.next -> 新节点 ）
-        //需要找到可以被唤醒的节点..
+        //1.当前节点(参数node)就是tail节点时，tail的后继肯定没有罗，则  s == null。
+        //2.当新节点入队未完成时（可以阅读 addWaiter 方法）
+        //  2.1.设置新节点的prev 指向pred
+        //  2.2.cas设置新节点为tail
+        //  2.3.（未完成）pred.next -> 新节点
+        //在2.2跟2.3之间的时候执行到这里，则 node.next 可能就是 null
+        if (s == null
 
-        //条件二：s.waitStatus > 0    前提：s ！= null
-        //成立：说明 当前node节点的后继节点是 取消状态... 需要找一个合适的可以被唤醒的节点..
-        if (s == null || s.waitStatus > 0) {
+                //条件二：s.waitStatus > 0    前提：s ！= null
+                //s.waitStatus > 0成立：说明 当前node节点的后继节点是 取消状态，当然不能唤醒
+                //需要找一个合适的可以被唤醒的节点.
+                || s.waitStatus > 0) {
+
             //查找可以被唤醒的节点...
             s = null;
-            for (Node t = tail; t != null && t != node; t = t.prev) {
+            for (Node t = tail;//从后往前查询
+                 t != null && t != node;//查询结束条件为t不为null，并且不是参数node
+                 t = t.prev) {
+
                 if (t.waitStatus <= 0) {
+                    //不断替换跟node更远的节点
+                    //最终的s是离node 最近的节点
                     s = t;
                 }
             }
@@ -732,6 +741,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
         //如果找到合适的可以被唤醒的node，则唤醒.. 找不到 啥也不做。
         if (s != null) {
+
+            //但是当前head并没有出队
             LockSupport.unpark(s.thread);
         }
     }
@@ -1022,6 +1033,10 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
                         //parkAndCheckInterrupt()  这个方法什么作用？ 挂起当前线程，并且唤醒之后 返回 当前线程的 中断标记
                         // （唤醒：1.正常唤醒 其它线程 unpark 2.其它线程给当前挂起的线程 一个中断信号..）
                         //该方法会阻塞
+                        /**
+                         * @see AbstractQueuedSynchronizer#unparkSuccessor
+                         * 该方法会唤醒你哦，唤醒之后当前线程会继续往下执行,继续自旋
+                         */
                         && parkAndCheckInterrupt()) {
                     //如果是中断唤醒
                     //interrupted == true 表示当前node对应的线程是被 中断信号唤醒的...
@@ -1443,7 +1458,10 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
     }
 
     /**
-     * Releases in exclusive mode.  Implemented by unblocking one or
+     * Releases in exclusive mode.
+     * -- 以独占模式释放锁
+     *
+     * Implemented by unblocking one or
      * more threads if {@link #tryRelease} returns true.
      * This method can be used to implement method {@link Lock#unlock}.
      *
@@ -1451,6 +1469,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      * {@link #tryRelease} but is otherwise uninterpreted and
      * can represent anything you like.
      * @return the value returned from {@link #tryRelease}
+     * @see ReentrantLock#unlock() 重入锁解锁的时候会调用
      */
     //AQS#release方法
     //ReentrantLock.unlock() -> sync.release()【AQS提供的release】
@@ -1459,21 +1478,24 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         //返回false，说明当前线程尚未完全释放锁..
         if (tryRelease(arg)) {
 
-            //head什么情况下会被创建出来？
-            //当持锁线程未释放线程时，且持锁期间 有其它线程想要获取锁时，其它线程发现获取不了锁，而且队列是空队列，此时后续线程会为当前持锁中的
+            //回顾下head什么情况下会被创建出来？
+            //当持锁线程未释放线程时，且持锁期间 有其它后续线程想要获取锁时(调用lock方法)，
+            //后续线程发现获取不了锁，而且队列是空队列，此时后续线程会为当前持锁中的
             //线程 构建出来一个head节点，然后后续线程  会追加到 head 节点后面。
             Node h = head;
 
-            //条件一:成立，说明队列中的head节点已经初始化过了，ReentrantLock 在使用期间 发生过 多线程竞争了...
-            //条件二：条件成立，说明当前head后面一定插入过node节点。
-            if (h != null && h.waitStatus != 0)
-            //唤醒后继节点..
-            {
+            //h != null成立，说明队列中的head节点已经初始化过了，ReentrantLock 在使用期间 发生过 多线程竞争了
+            if (h != null
+                    //上面为true才会到下面
+
+                    //h.waitStatus != 0成立，说明当前head后面一定插入过node节点。
+                    && h.waitStatus != 0) {
+
+                //说明有线程在等待获取锁，唤醒 h 的后继节点.
                 unparkSuccessor(h);
             }
             return true;
         }
-
         return false;
     }
 

@@ -76,13 +76,20 @@ public class ReentrantLock implements Lock, java.io.Serializable {
 
     /**
      * Synchronizer providing all implementation mechanics
+     *
+     * -- 同步器：提供所有实施机制
      */
     private final Sync sync;
 
     /**
-     * Base of synchronization control for this lock. Subclassed
-     * into fair and nonfair versions below. Uses AQS state to
-     * represent the number of holds on the lock.
+     * Base of synchronization control for this lock.
+     * -- 此锁的同步控制基础
+     *
+     * Subclassed into fair and nonfair versions below.
+     * -- 在下面细分为公平和非公平版本
+     *
+     * Uses AQS state to represent the number of holds on the lock.
+     * -- 使用AQS状态表示锁的保留数。
      */
     abstract static class Sync extends AbstractQueuedSynchronizer {
 
@@ -108,8 +115,8 @@ public class ReentrantLock implements Lock, java.io.Serializable {
                 }
             } else if (current == getExclusiveOwnerThread()) {
                 int nextc = c + acquires;
-                if (nextc < 0) // overflow
-                {
+                if (nextc < 0) {
+                    // overflow
                     throw new Error("Maximum lock count exceeded");
                 }
                 setState(nextc);
@@ -121,13 +128,18 @@ public class ReentrantLock implements Lock, java.io.Serializable {
         protected final boolean tryRelease(int releases) {
             int c = getState() - releases;
             if (Thread.currentThread() != getExclusiveOwnerThread()) {
+                //调用线程并不是占用锁的线程，扯鸡巴蛋
                 throw new IllegalMonitorStateException();
             }
+            //是否完全释放锁
             boolean free = false;
+
             if (c == 0) {
+                //完全释放锁的条件
                 free = true;
                 setExclusiveOwnerThread(null);
             }
+            //更新
             setState(c);
             return free;
         }
@@ -135,6 +147,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
         protected final boolean isHeldExclusively() {
             // While we must in general read state before owner,
             // we don't need to do so to check if current thread is owner
+            //虽然我们必须在拥有者之前先以一般状态读取状态，但我们不需要这样做就可以检查当前线程是否为拥有者
             return getExclusiveOwnerThread() == Thread.currentThread();
         }
 
@@ -158,9 +171,9 @@ public class ReentrantLock implements Lock, java.io.Serializable {
 
         /**
          * Reconstitutes the instance from a stream (that is, deserializes it).
+         * -- 从流中重构实例（即反序列化它）。
          */
-        private void readObject(java.io.ObjectInputStream s)
-                throws java.io.IOException, ClassNotFoundException {
+        private void readObject(java.io.ObjectInputStream s) throws java.io.IOException, ClassNotFoundException {
             s.defaultReadObject();
             setState(0); // reset to unlocked state
         }
