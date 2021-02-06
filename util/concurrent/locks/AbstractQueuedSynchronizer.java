@@ -652,6 +652,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         if (pred != null) {
             //当前节点的prev 指向 pred
             node.prev = pred;
+            //存在并发
             if (compareAndSetTail(pred, node)) {
                 //cas成功，说明node入队成功
 
@@ -1016,9 +1017,12 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
                 }
                 //shouldParkAfterFailedAcquire  这个方法是干嘛的？ 当前线程获取锁资源失败后，是否需要挂起呢？
                 //返回值：true -> 当前线程需要 挂起    false -> 不需要..
-                //parkAndCheckInterrupt()  这个方法什么作用？ 挂起当前线程，并且唤醒之后 返回 当前线程的 中断标记
-                // （唤醒：1.正常唤醒 其它线程 unpark 2.其它线程给当前挂起的线程 一个中断信号..）
-                if (shouldParkAfterFailedAcquire(p, node) && parkAndCheckInterrupt()) {
+                if (shouldParkAfterFailedAcquire(p, node)
+
+                        //parkAndCheckInterrupt()  这个方法什么作用？ 挂起当前线程，并且唤醒之后 返回 当前线程的 中断标记
+                        // （唤醒：1.正常唤醒 其它线程 unpark 2.其它线程给当前挂起的线程 一个中断信号..）
+                        //该方法会阻塞
+                        && parkAndCheckInterrupt()) {
                     //如果是中断唤醒
                     //interrupted == true 表示当前node对应的线程是被 中断信号唤醒的...
                     interrupted = true;
