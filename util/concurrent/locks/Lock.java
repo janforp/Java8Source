@@ -1,39 +1,5 @@
-/*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
- * Written by Doug Lea with assistance from members of JCP JSR-166
- * Expert Group and released to the public domain, as explained at
- * http://creativecommons.org/publicdomain/zero/1.0/
- */
-
 package java.util.concurrent.locks;
+
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -77,7 +43,7 @@ import java.util.concurrent.TimeUnit;
  * methods and statements. In most cases, the following idiom
  * should be used:
  *
- *  <pre> {@code
+ * <pre> {@code
  * Lock l = ...;
  * l.lock();
  * try {
@@ -157,12 +123,11 @@ import java.util.concurrent.TimeUnit;
  * shown that the interrupt occurred after another action may have unblocked
  * the thread. An implementation should document this behavior.
  *
+ * @author Doug Lea
  * @see ReentrantLock
  * @see Condition
  * @see ReadWriteLock
- *
  * @since 1.5
- * @author Doug Lea
  */
 public interface Lock {
 
@@ -180,6 +145,8 @@ public interface Lock {
      * may throw an (unchecked) exception in such circumstances.  The
      * circumstances and the exception type must be documented by that
      * {@code Lock} implementation.
+     *
+     * 阻塞到获取到锁为止
      */
     void lock();
 
@@ -226,8 +193,8 @@ public interface Lock {
      * be documented by that {@code Lock} implementation.
      *
      * @throws InterruptedException if the current thread is
-     *         interrupted while acquiring the lock (and interruption
-     *         of lock acquisition is supported)
+     * interrupted while acquiring the lock (and interruption
+     * of lock acquisition is supported)
      */
     void lockInterruptibly() throws InterruptedException;
 
@@ -240,7 +207,7 @@ public interface Lock {
      * immediately with the value {@code false}.
      *
      * <p>A typical usage idiom for this method would be:
-     *  <pre> {@code
+     * <pre> {@code
      * Lock lock = ...;
      * if (lock.tryLock()) {
      *   try {
@@ -256,7 +223,7 @@ public interface Lock {
      * doesn't try to unlock if the lock was not acquired.
      *
      * @return {@code true} if the lock was acquired and
-     *         {@code false} otherwise
+     * {@code false} otherwise
      */
     boolean tryLock();
 
@@ -312,11 +279,10 @@ public interface Lock {
      * @param time the maximum time to wait for the lock
      * @param unit the time unit of the {@code time} argument
      * @return {@code true} if the lock was acquired and {@code false}
-     *         if the waiting time elapsed before the lock was acquired
-     *
+     * if the waiting time elapsed before the lock was acquired
      * @throws InterruptedException if the current thread is interrupted
-     *         while acquiring the lock (and interruption of lock
-     *         acquisition is supported)
+     * while acquiring the lock (and interruption of lock
+     * acquisition is supported)
      */
     boolean tryLock(long time, TimeUnit unit) throws InterruptedException;
 
@@ -351,7 +317,7 @@ public interface Lock {
      *
      * @return A new {@link Condition} instance for this {@code Lock} instance
      * @throws UnsupportedOperationException if this {@code Lock}
-     *         implementation does not support conditions
+     * implementation does not support conditions
      */
     Condition newCondition();
 }

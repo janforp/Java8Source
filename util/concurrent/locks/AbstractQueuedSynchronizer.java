@@ -383,6 +383,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         /**
          * waitStatus value to indicate the next acquireShared should
          * unconditionally propagate
+         * 传播
          */
         //先不说...
         static final int PROPAGATE = -3;
@@ -490,6 +491,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
          * be elided, but is present to help the VM.
          *
          * @return the predecessor of this node
+         *
+         * 前任
          */
         final Node predecessor() throws NullPointerException {
             Node p = prev;
@@ -533,10 +536,11 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
     private transient volatile Node tail;
 
     /**
-     * The synchronization state.
+     * The synchronization state. 同步状态。
+     * 不同模式下有不同的含义
+     * 1.独占模式：0 表示未加锁状态   >0 表示已经加锁状态
+     * 2.共享模式：
      */
-    //表示资源
-    //独占模式：0 表示未加锁状态   >0 表示已经加锁状态
     private volatile int state;
 
     /**
@@ -1351,8 +1355,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         //条件二：2.1：addWaiter 将当前线程封装成node入队
         //       2.2：acquireQueued 挂起当前线程   唤醒后相关的逻辑..
         //      acquireQueued 返回true 表示挂起过程中线程被中断唤醒过..  false 表示未被中断过..
-        if (!tryAcquire(arg) &&
-                acquireQueued(addWaiter(Node.EXCLUSIVE), arg)) {
+        if (!tryAcquire(arg) && acquireQueued(addWaiter(Node.EXCLUSIVE), arg)) {
             //再次设置中断标记位 true
             selfInterrupt();
         }
