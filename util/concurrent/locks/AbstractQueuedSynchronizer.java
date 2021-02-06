@@ -592,9 +592,10 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
     /**
      * Inserts node into queue, initializing if necessary. See picture above.
+     * -- 将节点插入队列，必要时进行初始化
      *
      * @param node the node to insert
-     * @return node's predecessor
+     * @return node's predecessor -- 节点的前身
      */
     //AQS#enq()
     //返回值：返回当前节点的 前置节点。
@@ -602,9 +603,12 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         //自旋入队，只有当前node入队成功后，才会跳出循环。
         for (; ; ) {
             Node t = tail;
-            //1.当前队列是空队列  tail == null
-            //说明当前 锁被占用，且当前线程 有可能是第一个获取锁失败的线程（当前时刻可能存在一批获取锁失败的线程...）
+
+            //initializing if necessary 必要时进行初始化
             if (t == null) { // Must initialize -- 必须初始化
+                //1.当前队列是空队列  tail == null
+                //说明当前 锁被占用，且当前线程 有可能是第一个获取锁失败的线程（当前时刻可能存在一批获取锁失败的线程...）
+
                 //作为当前持锁线程的 第一个 后继线程，需要做什么事？
                 //1.因为当前持锁的线程，它获取锁时，直接tryAcquire成功了，没有向 阻塞队列 中添加任何node，所以作为后继需要为它擦屁股..
                 //2.为自己追加node
@@ -629,6 +633,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
     /**
      * Creates and enqueues node for current thread and given mode.
+     * -- 为当前线程和给定模式创建并排队节点。
      *
      * @param mode Node.EXCLUSIVE for exclusive, Node.SHARED for shared
      * @return the new node
@@ -639,7 +644,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         //Node.EXCLUSIVE
         //构建Node ，把当前线程封装到对象node中了
         Node node = new Node(Thread.currentThread(), mode);
-        // Try the fast path of enq; backup to full enq on failure
+        // Try the fast path of enq; backup to full enq on failure -- 尝试enq的快速路径；备份到完全失败
         //快速入队
         //获取队尾节点 保存到pred变量中
         Node pred = tail;
@@ -647,12 +652,16 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         if (pred != null) {
             //当前节点的prev 指向 pred
             node.prev = pred;
-            //cas成功，说明node入队成功
             if (compareAndSetTail(pred, node)) {
+                //cas成功，说明node入队成功
+
                 //前置节点指向当前node，完成 双向绑定。
                 pred.next = node;
                 return node;
             }
+
+            //cas 失败，说明node入队失败，继续往下走
+
         }
         //什么时候会执行到这里呢？
         //1.当前队列是空队列  tail == null
@@ -664,9 +673,11 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
     }
 
     /**
-     * Sets head of queue to be node, thus dequeuing. Called only by
-     * acquire methods.  Also nulls out unused fields for sake of GC
-     * and to suppress unnecessary signals and traversals.
+     * Sets head of queue to be node, thus dequeuing.
+     *
+     * Called only by acquire methods.
+     *
+     * Also nulls out unused fields for sake of GC and to suppress unnecessary signals and traversals.
      *
      * @param node the node
      */
@@ -876,8 +887,12 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
     /**
      * Checks and updates status for a node that failed to acquire.
-     * Returns true if thread should block. This is the main signal
-     * control in all acquire loops.  Requires that pred == node.prev.
+     * -- 检查并更新无法获取的节点的状态。
+     *
+     * Returns true if thread should block. This is the main signal control in all acquire loops.
+     * -- 如果线程应阻塞，则返回true。这是所有采集循环中的主要信号控制。
+     *
+     * Requires that pred == node.prev.
      *
      * @param pred node's predecessor holding status
      * @param node the node
@@ -897,7 +912,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         //waitStatus：0 默认状态 new Node() ； -1 Signal状态，表示当前节点释放锁之后会唤醒它的第一个后继节点； >0 表示当前节点是CANCELED状态
         int ws = pred.waitStatus;
         //条件成立：表示前置节点是个可以唤醒当前节点的节点，所以返回true ==> parkAndCheckInterrupt() park当前线程了..
-        //普通情况下，第一次来到shouldPark。。。 ws 不会是 -1
+        //普通情况下，第一次来到 sshouldParkAfterFailedAcquire ws 不会是 -1
         if (ws == Node.SIGNAL) {
             return true;
         }
@@ -929,13 +944,15 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
     /**
      * Convenience method to park and then check if interrupted
+     * -- park 的便捷方法，然后检查是否中断
      *
      * @return {@code true} if interrupted
      */
-    //AQS#parkAndCheckInterrupt
-    //park当前线程 将当前线程 挂起，唤醒后返回当前线程 是否为 中断信号 唤醒。
     private final boolean parkAndCheckInterrupt() {
+        //park当前线程 将当前线程 挂起
         LockSupport.park(this);
+
+        //唤醒后返回当前线程 是否为 中断信号 唤醒。
         return Thread.interrupted();
     }
 
@@ -978,11 +995,15 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
                 //获取当前节点的前置节点..
                 final Node p = node.predecessor();
+
                 //条件一成立：p == head  说明当前节点为head.next节点，head.next节点在任何时候 都有权利去争夺锁.
-                //条件二：tryAcquire(arg)
-                //成立：说明head对应的线程 已经释放锁了，head.next节点对应的线程，正好获取到锁了..
-                //不成立：说明head对应的线程  还没释放锁呢...head.next仍然需要被park。。
-                if (p == head && tryAcquire(arg)) {
+                if (p == head
+
+                        //条件二：tryAcquire(arg)
+                        //如果tryAcquire成功：说明head对应的线程 已经释放锁了，head.next节点对应的线程，正好获取到锁了..
+                        //如果tryAcquire成功失败：说明head对应的线程  还没释放锁呢...head.next仍然需要被park。。
+                        && tryAcquire(arg)) {
+
                     //拿到锁之后需要做什么？
                     //设置自己为head节点。
                     setHead(node);
@@ -997,10 +1018,9 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
                 //返回值：true -> 当前线程需要 挂起    false -> 不需要..
                 //parkAndCheckInterrupt()  这个方法什么作用？ 挂起当前线程，并且唤醒之后 返回 当前线程的 中断标记
                 // （唤醒：1.正常唤醒 其它线程 unpark 2.其它线程给当前挂起的线程 一个中断信号..）
-                if (shouldParkAfterFailedAcquire(p, node) &&
-                        parkAndCheckInterrupt())
-                //interrupted == true 表示当前node对应的线程是被 中断信号唤醒的...
-                {
+                if (shouldParkAfterFailedAcquire(p, node) && parkAndCheckInterrupt()) {
+                    //如果是中断唤醒
+                    //interrupted == true 表示当前node对应的线程是被 中断信号唤醒的...
                     interrupted = true;
                 }
             }
@@ -1348,14 +1368,21 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      * @param arg the acquire argument.  This value is conveyed to
      * {@link #tryAcquire} but is otherwise uninterpreted and
      * can represent anything you like.
+     * @see ReentrantLock.FairSync#lock() 该方法中就是调用这个方法
      */
     //AQS#acquire
     public final void acquire(int arg) {
-        //条件一：!tryAcquire 尝试获取锁 获取成功返回true  获取失败 返回false。
-        //条件二：2.1：addWaiter 将当前线程封装成node入队
-        //       2.2：acquireQueued 挂起当前线程   唤醒后相关的逻辑..
-        //      acquireQueued 返回true 表示挂起过程中线程被中断唤醒过..  false 表示未被中断过..
-        if (!tryAcquire(arg) && acquireQueued(addWaiter(Node.EXCLUSIVE), arg)) {
+        /**
+         * 条件一：!tryAcquire 尝试获取锁 获取成功返回true  获取失败 返回false。
+         * @see ReentrantLock.FairSync#tryAcquire(int)  子类自己实现
+         */
+        if (!tryAcquire(arg) &&
+
+                //条件二：2.1：addWaiter 将当前线程封装成node入队
+                //       2.2：acquireQueued 挂起当前线程   唤醒后相关的逻辑..
+                //      acquireQueued 返回true 表示挂起过程中线程被中断唤醒过..  false 表示未被中断过..
+                acquireQueued(addWaiter(Node.EXCLUSIVE), arg)) {
+
             //再次设置中断标记位 true
             selfInterrupt();
         }
