@@ -2242,6 +2242,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      *
      * <p>This class is Serializable, but all fields are transient,
      * so deserialized conditions have no waiters.
+     *
+     * 其实就是一个单向链表！！！！！！！
      */
     public class ConditionObject implements Condition, java.io.Serializable {
 

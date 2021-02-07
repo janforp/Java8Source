@@ -154,6 +154,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
         }
 
         final ConditionObject newCondition() {
+            //内部类是可以直接访问外部对象的
             return new ConditionObject();
         }
 
