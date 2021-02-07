@@ -2222,6 +2222,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
         /**
          * Adds a new waiter to wait queue.
+         * -- 添加新的waiter 到等待队列。
          *
          * @return its new wait node
          * 调用await方法的线程 都是 持锁状态的，也就是说 addConditionWaiter 这里不存在并发！
@@ -2231,11 +2232,16 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
             Node t = lastWaiter;
 
             //条件一：t != null 成立：说明当前条件队列中，已经有node元素了..
-            //条件二：node 在 条件队列中时，它的状态是 CONDITION（-2）
-            //     t.waitStatus != Node.CONDITION 成立：说明当前node发生中断了..
-            // If lastWaiter is cancelled, clean out.
-            if (t != null && t.waitStatus != Node.CONDITION) {
+            if (t != null
+
+                    //条件二：node 在 条件队列中时，它的状态是 CONDITION（-2）
+                    //     t.waitStatus != Node.CONDITION 成立：说明当前node发生中断了..
+                    && t.waitStatus != Node.CONDITION) {
+
+                //当前分支的目的： If lastWaiter is cancelled, clean out.（如果lastWaiter被取消，请清除。）
+
                 //清理条件队列中所有取消状态的节点
+                //该方法执行完成之后得到的队列都是条件节点了
                 unlinkCancelledWaiters();
                 //更新局部变量t 为最新队尾引用，因为上面unlinkCancelledWaiters可能会更改lastWaiter引用。
                 t = lastWaiter;
@@ -2244,15 +2250,13 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
             //为当前线程创建node节点，设置状态为 CONDITION(-2)
             Node node = new Node(Thread.currentThread(), Node.CONDITION);
 
-            //条件成立：说明条件队列中没有任何元素，当前线程是第一个进入队列的元素。
-            //让firstWaiter 指向当前node
             if (t == null) {
+                //条件成立：说明条件队列中没有任何元素，当前线程是第一个进入队列的元素。让firstWaiter 指向当前node
                 firstWaiter = node;
-            } else//说明当前条件队列已经有其它node了 ，做追加操作
-            {
+            } else {
+                //说明当前条件队列已经有其它node了 ，做追加操作
                 t.nextWaiter = node;
             }
-
             //更新队尾引用指向 当前node。
             lastWaiter = node;
             //返回当前线程的node
@@ -2304,39 +2308,61 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
         /**
          * Unlinks cancelled waiter nodes from condition queue.
-         * Called only while holding lock. This is called when
-         * cancellation occurred during condition wait, and upon
-         * insertion of a new waiter when lastWaiter is seen to have
-         * been cancelled. This method is needed to avoid garbage
-         * retention in the absence of signals. So even though it may
-         * require a full traversal, it comes into play only when
-         * timeouts or cancellations occur in the absence of
-         * signals. It traverses all nodes rather than stopping at a
+         * -- 从条件队列中取消取消的服务员节点的链接。
+         *
+         * Called only while holding lock.
+         * -- 仅在保持锁定状态下调用。
+         *
+         * This is called when cancellation occurred during condition wait, and upon insertion of a new waiter when lastWaiter is seen to have been cancelled.
+         * -- 当在条件等待期间发生取消操作时，以及在插入新节点的时候看懂lastWaiter已经被取消的时候
+         *
+         * This method is needed to avoid garbage retention in the absence of signals.
+         * -- 需要该方法来避免在没有信号的情况下保留垃圾。
+         *
+         * So even though it may require a full traversal, it comes into play only when timeouts or cancellations occur in the absence of signals.
+         * -- 因此，即使可能需要完整遍历，它也只有在没有信号的情况下发生超时或取消时才起作用。
+         *
+         * It traverses all nodes rather than stopping at a
          * particular target to unlink all pointers to garbage nodes
-         * without requiring many re-traversals during cancellation
-         * storms.
+         * without requiring many re-traversals during cancellation storms.
+         * -- 它遍历所有节点，而不是停在特定目标上，以取消所有指向垃圾节点的指针的链接，而无需在取消风暴期间进行多次遍历。
+         *
+         *
+         * 初始队列为：
+         * firstWaiter -> CONDITION ->CONDITION -> !CONDITION ->CONDITION -> !CONDITION -> ...... -> lastWaiter
+         *
+         * 第一次遍历后：
+         * firstWaiter -> CONDITION(trail)(t) ->CONDITION -> !CONDITION ->CONDITION -> !CONDITION -> ...... -> lastWaiter
+         *
+         * 第2次遍历后：
+         * firstWaiter -> CONDITION ->CONDITION(trail)(t) -> !CONDITION ->CONDITION -> !CONDITION -> ...... -> lastWaiter
+         *
+         * 第3次遍历后：
+         * firstWaiter -> CONDITION ->CONDITION(trail) -> !CONDITION(t) ->CONDITION(next) -> !CONDITION -> ...... -> lastWaiter
+         *
+         * firstWaiter -> CONDITION ->CONDITION(trail) -> CONDITION(t) -> !CONDITION -> ...... -> lastWaiter
          */
         private void unlinkCancelledWaiters() {
             //表示循环当前节点，从链表的第一个节点开始 向后迭代处理.
             Node t = firstWaiter;
-            //当前链表上一个正常状态的node节点
+            //当前链表 上一个 正常状态的node节点
             Node trail = null;
 
             while (t != null) {
                 //当前节点的下一个节点.
                 Node next = t.nextWaiter;
-                //条件成立：说明当前节点状态为 取消状态
+
                 if (t.waitStatus != Node.CONDITION) {
+                    //条件成立：说明当前节点状态为 取消状态
+
                     //更新nextWaiter为null
                     t.nextWaiter = null;
                     //条件成立：说明遍历到的节点还未碰到过正常节点..
-                    if (trail == null)
-                    //更新firstWaiter指针为下个节点就可以
-                    {
+                    if (trail == null) {
+                        //更新firstWaiter指针为下个节点就可以
                         firstWaiter = next;
-                    } else
-                    //让上一个正常节点指向 取消节点的 下一个节点..中间有问题的节点 被跳过去了..
-                    {
+                    } else {
+                        //让上一个正常节点指向 取消节点的 下一个节点..中间有问题的节点 被跳过去了..
                         trail.nextWaiter = next;
                     }
 
@@ -2344,11 +2370,11 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
                     if (next == null) {
                         lastWaiter = trail;
                     }
-                } else//条件不成立执行到else，说明当前节点是正常节点
-                {
+                } else {
+                    //条件不成立执行到else，说明当前节点是正常节点
                     trail = t;
                 }
-
+                //继续遍历下一个节点
                 t = next;
             }
         }
