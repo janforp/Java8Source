@@ -828,31 +828,38 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
     /**
      * 取消指定node参与竞争。
+     *
+     * @see ReentrantLock#lockInterruptibly()
+     * @see AbstractQueuedSynchronizer#doAcquireInterruptibly(int)
      */
     private void cancelAcquire(Node node) {
-        //空判断..
         if (node == null) {
             return;
         }
-
         //因为已经取消排队了..所以node内部关联的当前线程，置为Null就好了。。
         node.thread = null;
-
         //获取当前取消排队node的前驱。
         Node pred = node.prev;
-
-        //waitStatus > 0 说明也是取消状态
+        /**
+         * @see Node#CANCELLED waitStatus > 0 说明也是取消状态
+         */
         while (pred.waitStatus > 0) {
             node.prev = pred = pred.prev;
         }
-
-        //拿到前驱的后继节点。
-        //1.当前node
-        //2.可能也是 ws > 0 的节点。
+        /**
+         * 拿到前驱(pred 可能不是node的前驱了)的后继(也有可能不是当前节点了)节点。
+         * 1.当前node: head -> -1 -> -1 -> -1(pred) -> node(predNext) -> ..... -> tail
+         * 2.可能也是 ws > 0 的节点。head -> -1(pred) -> 1(predNext) -> 1 -> node -> ..... -> tail
+         */
         Node predNext = pred.next;
-
         //将当前node状态设置为 取消状态  1
+        /**
+         * 1.当前node: head -> -1 -> -1 -> -1(pred) -> node(predNext)：1 -> ..... -> tail
+         * 2.可能也是 ws > 0 的节点。head -> -1(pred) -> 1(predNext) -> 1 -> node：1 -> ..... -> tail
+         */
         node.waitStatus = Node.CANCELLED;
+
+        //此时pred节点定不是取消状态!!!!!!!!
 
         /**
          * 当前取消排队的node所在 队列的位置不同，执行的出队策略是不一样的，一共分为三种情况：
@@ -861,46 +868,61 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
          * 3.当前node 是 head.next节点。
          */
         //条件一：node == tail  成立：当前node是队尾  tail -> node
-        if (node == tail
+        if (node == tail//说明当前要出队的节点就是尾节点
                 //条件二：compareAndSetTail(node, pred) 成功的话，说明修改tail完成。
+                //cas成功之后tail指针就指向了pred
                 && compareAndSetTail(node, pred)) {
 
-            //修改pred.next -> null. 完成node出队。
+            //说明要出队节点为tail节点，并且已经把tail指针指向了pred
+
+            //修改pred.next -> null. 完成node出队。使之前的pred.next指针指向null,因为此时pred节点已经是tail了
             compareAndSetNext(pred, predNext, null);
-        } else {
+        }
+
+        //下面的情况是node不是tail的情况
+        else {
             //保存节点状态
             int ws;
+
             //第二种情况：当前node 不是 head.next 节点，也不是 tail
+            /**
+             * head -> -1 -> -1 -> -1(pred) -> 1(predNext) -> 1 -> 1 -> node：1 -> ..... -> tail
+             */
+            if (pred != head//条件一：pred != head 成立， 说明当前node 不是 head.next 节点，也不是 tail(上面已经判断过了)
 
-            //条件一：pred != head 成立， 说明当前node 不是 head.next 节点，也不是 tail(上面已经判断过了)
-            if (pred != head
-
-                    //条件二： ((ws = pred.waitStatus) == Node.SIGNAL || (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL)))
-                    //条件2.1：(ws = pred.waitStatus) == Node.SIGNAL   成立：说明node的前驱状态是 Signal 状态   不成立：前驱状态可能是0 ，极端情况下：前驱也取消排队了..
-                    //条件2.2:(ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))， 假设前驱状态是 <= 0 则设置前驱状态为 Signal状态..表示要唤醒后继节点。
-                    //if里面做的事情，就是让pred.next -> node.next  ,所以需要保证pred节点状态为 Signal状态。
-                    && ((ws = pred.waitStatus) == Node.SIGNAL || (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL)))
+                    && (
+                    //条件2.1：(ws = pred.waitStatus) == Node.SIGNAL
+                    //成立：说明node的前驱状态是 Signal 状态
+                    //不成立：前驱状态可能是0 ，极端情况下：前驱也取消排队了..
+                    (ws = pred.waitStatus) == Node.SIGNAL
+                            //条件2.2: 假设前驱状态是 <= 0 则设置前驱状态为 Signal状态..表示要唤醒后继节点。
+                            || (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL)))
 
                     //基本都成立
                     && pred.thread != null) {
+                //if里面做的事情，就是让pred.next 指向 node.next也就是跳过中间的所有状态为取消的节点,所以需要保证pred节点状态为 Signal状态。
 
-                //情况2：当前node 不是 head.next 节点，也不是 tail
-                //出队：pred.next -> node.next 节点后，当node.next节点 被唤醒后
-                //调用 shouldParkAfterFailedAcquire 会让node.next 节点越过取消状态的节点
-                //完成真正出队。
+                //出队：pred.next 指向 node.next 节点后，当node.next节点 被唤醒后调用 shouldParkAfterFailedAcquire 会让node.next 节点越过取消状态的节点完成真正出队。
                 Node next = node.next;
                 if (next != null && next.waitStatus <= 0) {
+                    /**
+                     * head -> -1 -> -1 -> -1(pred) -> 1(predNext) -> 1 -> 1 -> node：1 -> -1 -> ..... -> tail
+                     * cas之后：
+                     * head -> -1 -> -1 -> -1(pred) -> -1(next) -> ..... -> tail
+                     */
                     compareAndSetNext(pred, predNext, next);
                 }
-
             }
 
-            //情况3
+            //3.当前node 是 head.next节点。
             else {
-                //当前node 是 head.next节点。  更迷了...！！！！！！
-                //类似情况2，后继节点唤醒后，会调用 shouldParkAfterFailedAcquire 会让node.next 节点越过取消状态的节点
-                //队列的第三个节点 会 直接 与 head 建立 双重指向的关系：
-                //head.next -> 第三个node  中间就是被出队的head.next 第三个node.prev -> head
+                /**
+                 * head -> node -> -1 -> -1 -> tail
+                 * 当前node 是 head.next节点。  更迷了...！！！！！！
+                 * 类似情况2，后继节点唤醒后，会调用 shouldParkAfterFailedAcquire 会让node.next 节点越过取消状态的节点
+                 * 队列的第三个节点 会 直接 与 head 建立 双重指向的关系：
+                 * head.next -> 第三个node  中间就是被出队的head.next 第三个node.prev -> head
+                 */
                 unparkSuccessor(node);
             }
             node.next = node; // help GC
