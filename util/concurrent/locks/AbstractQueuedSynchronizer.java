@@ -1941,8 +1941,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         //可以推算出，就算prev不是null，也不能说明当前node 已经成功入队到 阻塞队列了。
 
         //条件成立：说明当前节点已经成功入队到阻塞队列，且当前节点后面已经有其它node了...
-        if (node.next != null) // If has successor, it must be on queue
-        {
+        if (node.next != null) {
+            // If has successor, it must be on queue
             return true;
         }
 
@@ -1984,6 +1984,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
     /**
      * Transfers a node from a condition queue onto sync queue.
+     * -- 将节点从条件队列转移到同步队列。
+     *
      * Returns true if successful.
      *
      * @param node the node
@@ -1991,8 +1993,9 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      * cancelled before signal)
      */
     final boolean transferForSignal(Node node) {
-        /*
+        /**
          * If cannot change waitStatus, the node has been cancelled.
+         * -- 如果无法更改waitStatus，则该节点已被取消。
          */
         //cas修改当前节点的状态，修改为0，因为当前节点马上要迁移到 阻塞队列了
         //成功：当前节点在条件队列中状态正常。
@@ -2013,19 +2016,20 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
         //ws 前驱节点的状态..
         int ws = p.waitStatus;
-        //条件一：ws > 0 成立：说明前驱节点的状态在阻塞队列中是 取消状态,唤醒当前节点。
-        //条件二：前置条件(ws <= 0)，
-        //compareAndSetWaitStatus(p, ws, Node.SIGNAL) 返回true 表示设置前驱节点状态为 SIGNAl状态成功
-        //compareAndSetWaitStatus(p, ws, Node.SIGNAL) 返回false  ===> 什么时候会false?
-        //当前驱node对应的线程 是 lockInterrupt入队的node时，是会响应中断的，外部线程给前驱线程中断信号之后，前驱node会将
-        //状态修改为 取消状态，并且执行 出队逻辑..
-        //前驱节点状态 只要不是 0 或者 -1 那么，就唤醒当前线程。
-        if (ws > 0 || !compareAndSetWaitStatus(p, ws, Node.SIGNAL))
-        //唤醒当前node对应的线程...回头再说。
-        {
+
+        if (ws > 0 //条件一：ws > 0 成立：说明前驱节点的状态在阻塞队列中是 取消状态,唤醒当前节点。
+
+                //条件二：前置条件(ws <= 0)，
+                //compareAndSetWaitStatus(p, ws, Node.SIGNAL) 返回true 表示设置前驱节点状态为 SIGNAl状态成功
+                //compareAndSetWaitStatus(p, ws, Node.SIGNAL) 返回false  ===> 什么时候会false?
+                //当前驱node对应的线程 是 lockInterrupt入队的node时，是会响应中断的，外部线程给前驱线程中断信号之后，前驱node会将
+                //状态修改为 取消状态，并且执行 出队逻辑..
+                //前驱节点状态 只要不是 0 或者 -1 那么，就唤醒当前线程。
+                || !compareAndSetWaitStatus(p, ws, Node.SIGNAL)) {
+
+            //唤醒当前node对应的线程...回头再说。
             LockSupport.unpark(node.thread);
         }
-
         return true;
     }
 
@@ -2264,9 +2268,11 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         }
 
         /**
-         * Removes and transfers nodes until hit non-cancelled one or
-         * null. Split out from signal in part to encourage compilers
-         * to inline the case of no waiters.
+         * Removes and transfers nodes until hit non-cancelled one or null.
+         * -- 删除并转移节点，直到命中不可取消的一个或为null。
+         *
+         * Split out from signal in part to encourage compilers to inline the case of no waiters.
+         * -- 从信号中分离出来，部分鼓励编译器内联没有服务员的情况。
          *
          * @param first (non-null) the first node on condition queue
          */
@@ -2287,12 +2293,12 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
                 //boolean：true 当前first节点迁移到阻塞队列成功  false 迁移失败...
                 //while循环 ：(first = firstWaiter) != null  当前first迁移失败，则将first更新为 first.next 继续尝试迁移..
                 //直至迁移某个节点成功，或者 条件队列为null为止。
-            } while (!transferForSignal(first) &&
-                    (first = firstWaiter) != null);
+            } while (!transferForSignal(first) && (first = firstWaiter) != null);
         }
 
         /**
          * Removes and transfers all nodes.
+         * -- 删除并转移所有节点。
          *
          * @param first (non-null) the first node on condition queue
          */
@@ -2481,8 +2487,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
          * Throws InterruptedException, reinterrupts current thread, or
          * does nothing, depending on mode.
          */
-        private void reportInterruptAfterWait(int interruptMode)
-                throws InterruptedException {
+        private void reportInterruptAfterWait(int interruptMode) throws InterruptedException {
             //条件成立：说明在条件队列内发生过中断，此时await方法抛出中断异常
             if (interruptMode == THROW_IE) {
                 throw new InterruptedException();
@@ -2552,9 +2557,9 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
             //考虑下 node.nextWaiter != null 条件什么时候成立呢？
             //其实是node在条件队列内时 如果被外部线程 中断唤醒时，会加入到阻塞队列，但是并未设置nextWaiter = null。
-            if (node.nextWaiter != null) // clean up if cancelled
-            //清理条件队列内取消状态的节点..
-            {
+            if (node.nextWaiter != null) {
+                // clean up if cancelled
+                //清理条件队列内取消状态的节点..
                 unlinkCancelledWaiters();
             }
 
@@ -2577,8 +2582,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
          * <li> If interrupted while blocked in step 4, throw InterruptedException.
          * </ol>
          */
-        public final long awaitNanos(long nanosTimeout)
-                throws InterruptedException {
+        public final long awaitNanos(long nanosTimeout) throws InterruptedException {
             if (Thread.interrupted()) {
                 throw new InterruptedException();
             }
@@ -2625,8 +2629,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
          * <li> If timed out while blocked in step 4, return false, else true.
          * </ol>
          */
-        public final boolean awaitUntil(Date deadline)
-                throws InterruptedException {
+        public final boolean awaitUntil(Date deadline) throws InterruptedException {
             long abstime = deadline.getTime();
             if (Thread.interrupted()) {
                 throw new InterruptedException();
@@ -2671,8 +2674,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
          * <li> If timed out while blocked in step 4, return false, else true.
          * </ol>
          */
-        public final boolean await(long time, TimeUnit unit)
-                throws InterruptedException {
+        public final boolean await(long time, TimeUnit unit) throws InterruptedException {
             long nanosTimeout = unit.toNanos(time);
             if (Thread.interrupted()) {
                 throw new InterruptedException();
