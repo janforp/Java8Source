@@ -917,7 +917,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
             //3.当前node 是 head.next节点。
             else {
                 /**
-                 * head -> node -> -1 -> -1 -> tail
+                 * head(-1) -> node(1) -> -1 -> -1 -> tail
+                 *
                  * 当前node 是 head.next节点。  更迷了...！！！！！！
                  * 类似情况2，后继节点唤醒后，会调用 shouldParkAfterFailedAcquire 会让node.next 节点越过取消状态的节点
                  * 队列的第三个节点 会 直接 与 head 建立 双重指向的关系：
@@ -925,6 +926,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
                  */
                 unparkSuccessor(node);
             }
+
+            //node.next指向自己
             node.next = node; // help GC
         }
     }
