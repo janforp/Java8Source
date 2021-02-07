@@ -191,6 +191,8 @@ public interface Condition {
      * must ensure that the signal is redirected to another waiting thread, if
      * there is one.
      *
+     * 响应中断的
+     *
      * @throws InterruptedException if the current thread is interrupted
      *         (and interruption of thread suspension is supported)
      */

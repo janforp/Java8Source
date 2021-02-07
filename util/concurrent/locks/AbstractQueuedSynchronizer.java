@@ -2244,10 +2244,13 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      * so deserialized conditions have no waiters.
      *
      * 其实就是一个单向链表！！！！！！！
+     * 内部类可以访问外部对象的属性方法哦
      */
     public class ConditionObject implements Condition, java.io.Serializable {
 
         private static final long serialVersionUID = 1173984872572414699L;
+
+        //明显是一个单向链表
 
         /**
          * First node of condition queue.
@@ -2519,11 +2522,13 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
         /**
          * Mode meaning to reinterrupt on exit from wait
+         * -- 模式意味着在等待退出时重新中断
          */
         private static final int REINTERRUPT = 1;
 
         /**
          * Mode meaning to throw InterruptedException on exit from wait
+         * -- 模式的意思是在退出等待时抛出InterruptedException
          */
         private static final int THROW_IE = -1;
 
@@ -2581,6 +2586,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         public final void await() throws InterruptedException {
             //判断当前线程是否是中断状态，如果是则直接给个中断异常了..
             if (Thread.interrupted()) {
+                //响应中断
                 throw new InterruptedException();
             }
 
@@ -2588,6 +2594,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
             Node node = addConditionWaiter();
             //完全释放掉当前线程对应的锁（将state置为0）
             //为什么要释放锁呢？  加着锁 挂起后，谁还能救你呢？
+            //注意：只有拿到锁的线程才能调用 await() 方法！！所以这里释放资源是能够成功的
             int savedState = fullyRelease(node);
 
             /**
@@ -2601,6 +2608,13 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
              * isOnSyncQueue(Node) 节点是否在AQS阻塞队列中？
              * 返回true：  表示当前线程对应的node已经迁移到 “阻塞队列” 了，到了AQS的阻塞队列了
              * 返回false： 说明当前node仍然还在 条件队列中，需要继续park！
+             *
+             * 前提：1.当前线程已经释放了锁资源
+             *      2.当前线程在该condition的条件队列中了，但是目前还没有挂起
+             *
+             * 进入方法之后：
+             *      1.大概率不在阻塞队列，所以进入while循环之后就会挂起当前线程
+             *      2.然后等待其他线程在这个condition上(可以理解成同一个条件满足了)调用signal或者signalAll为止！
              */
             while (!isOnSyncQueue(node)) {
 
@@ -2622,8 +2636,13 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
                 }
             }
 
-            //执行到这里，就说明 当前node已经迁移到 “阻塞队列”了
+            /**
+             * 1.出了while循环，执行到这里，就说明 当前node已经迁移到 “阻塞队列”了
+             * 2.说明有其他线程在相同condition上调用了signal或者signalAll方法
+             * 3.当前线程可以争取资源，如果争取到了资源继续往下执行，否则会在acquireQueued方法中继续挂起
+             */
 
+            //跟之前的AQS普通阻塞队列一样，还是要竞争锁！
             if (
                 //acquireQueued ：竞争队列的逻辑..
                 //条件一：返回true 表示在阻塞队列中 被外部线程中断唤醒过..
