@@ -2624,11 +2624,12 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
             //执行到这里，就说明 当前node已经迁移到 “阻塞队列”了
 
-            //acquireQueued ：竞争队列的逻辑..
-            //条件一：返回true 表示在阻塞队列中 被外部线程中断唤醒过..
-            if (acquireQueued(node, savedState)
-                    //条件二：interruptMode != THROW_IE 成立，说明当前node在条件队列内 未发生过中断
-                    && interruptMode != THROW_IE) {
+            if (
+                //acquireQueued ：竞争队列的逻辑..
+                //条件一：返回true 表示在阻塞队列中 被外部线程中断唤醒过..
+                    acquireQueued(node, savedState)
+                            //条件二：interruptMode != THROW_IE 成立，说明当前node在条件队列内 未发生过中断
+                            && interruptMode != THROW_IE) {
 
                 //设置interruptMode = REINTERRUPT
                 interruptMode = REINTERRUPT;
