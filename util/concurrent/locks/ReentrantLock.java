@@ -109,11 +109,13 @@ public class ReentrantLock implements Lock, java.io.Serializable {
             final Thread current = Thread.currentThread();
             int c = getState();
             if (c == 0) {
+                //上来就是抢锁！！才不管有没有其他线程在排队呢
                 if (compareAndSetState(0, acquires)) {
                     setExclusiveOwnerThread(current);
                     return true;
                 }
             } else if (current == getExclusiveOwnerThread()) {
+                //重入
                 int nextc = c + acquires;
                 if (nextc < 0) {
                     // overflow
@@ -192,6 +194,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
          * acquire on failure.
          */
         final void lock() {
+            //上来就是抢锁！！，才不管有没有其他线程在排队呢
             if (compareAndSetState(0, 1)) {
                 setExclusiveOwnerThread(Thread.currentThread());
             } else {
