@@ -2238,6 +2238,10 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
          *
          * @return its new wait node
          * 调用await方法的线程 都是 持锁状态的，也就是说 addConditionWaiter 这里不存在并发！
+         *
+         * firstWaiter(node0：CONDITION) -> node1：!CONDITION -> node2：CONDITION -> lastWaiter(node3：CONDITION)
+         * addConditionWaiter方法之后的条件队列为：
+         * firstWaiter(node0：CONDITION) -> 被移除了 -> node2：CONDITION -> node3：CONDITION -> lastWaiter(newNode：CONDITION)
          */
         private Node addConditionWaiter() {
             //获取当前条件队列的尾节点的引用 保存到局部变量 t中
@@ -2253,13 +2257,13 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
                 //当前分支的目的： If lastWaiter is cancelled, clean out.（如果lastWaiter被取消，请清除。）
 
                 //清理条件队列中所有取消状态的节点
-                //该方法执行完成之后得到的队列都是条件节点了
+                //该方法执行完成之后得到的队列都是条件节点了(node.waitStatus = Node.CONDITION)
                 unlinkCancelledWaiters();
                 //更新局部变量t 为最新队尾引用，因为上面unlinkCancelledWaiters可能会更改lastWaiter引用。
                 t = lastWaiter;
             }
 
-            //为当前线程创建node节点，设置状态为 CONDITION(-2)
+            //为当前线程创建node节点，设置状态为 CONDITION(-2),说明它是一个条件队列中的节点
             Node node = new Node(Thread.currentThread(), Node.CONDITION);
 
             if (t == null) {
@@ -2355,6 +2359,9 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
          * firstWaiter -> CONDITION ->CONDITION(trail) -> !CONDITION(t) ->CONDITION(next) -> !CONDITION -> ...... -> lastWaiter
          *
          * firstWaiter -> CONDITION ->CONDITION(trail) -> CONDITION(t) -> !CONDITION -> ...... -> lastWaiter
+         *
+         * 总结：
+         * firstWaiter ..... lastWaiter 的队列中，只要有状态不是CONDITION的节点都会被清除!!!!!
          */
         private void unlinkCancelledWaiters() {
             //表示循环当前节点，从链表的第一个节点开始 向后迭代处理.
