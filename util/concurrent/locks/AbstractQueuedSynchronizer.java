@@ -478,8 +478,9 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
          * re-acquire. And because conditions can only be exclusive,
          * we save a field by using special value to indicate shared
          * mode.
+         *
+         * 条件队列中就是用的单向链表结构
          */
-        //reentrantLock 未用到...先不说..
         Node nextWaiter;
 
         /**
