@@ -2035,14 +2035,21 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
     /**
      * Transfers node, if necessary, to sync queue after a cancelled wait.
+     * -- 当节点被取消后，如有必要，将节点传输到同步队列。
+     *
+     *
      * Returns true if thread was cancelled before being signalled.
+     * -- 如果线程在发出信号之前被取消，则返回true。
      *
      * @param node the node
      * @return true if cancelled before the node was signalled
+     * @see ConditionObject#checkInterruptWhileWaiting(java.util.concurrent.locks.AbstractQueuedSynchronizer.Node)
      */
     final boolean transferAfterCancelledWait(Node node) {
-        //条件成立：说明当前node一定是在 条件队列内，因为signal 迁移节点到阻塞队列时，会将节点的状态修改为0
+
         if (compareAndSetWaitStatus(node, Node.CONDITION, 0)) {
+            //条件成立：说明当前node一定是在 条件队列内，因为signal 迁移节点到阻塞队列时，会将节点的状态修改为0
+
             //中断唤醒的node也会被加入到 阻塞队列中！！
             enq(node);
             //true：表示是在条件队列内被中断的.
@@ -2053,11 +2060,12 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         //1.当前node已经被外部线程调用 signal 方法将其迁移到 阻塞队列内了。
         //2.当前node正在被外部线程调用 signal 方法将其迁移至 阻塞队列中 进行中状态..
 
-        /*
-         * If we lost out to a signal(), then we can't proceed
-         * until it finishes its enq().  Cancelling during an
-         * incomplete transfer is both rare and transient, so just
-         * spin.
+        /**
+         * If we lost out to a signal(), then we can't proceed until it finishes its enq().
+         * -- 如果我们输给了signal（），那么直到它完成enq（）之前我们无法继续进行。
+         *
+         * Cancelling during an incomplete transfer is both rare and transient, so just spin.
+         * -- 在不完全的传输过程中取消是很少见且短暂的，因此只需旋转即可。
          */
         while (!isOnSyncQueue(node)) {
             Thread.yield();
@@ -2476,11 +2484,15 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
          * 0 if not interrupted.
          */
         private int checkInterruptWhileWaiting(Node node) {
-            //Thread.interrupted() 返回当前线程中断标记位，并且重置当前标记位 为 false 。
-            return Thread.interrupted() ?
-                    //transferAfterCancelledWait 这个方法只有在线程是被中断唤醒时 才会调用！
-                    (transferAfterCancelledWait(node) ? THROW_IE : REINTERRUPT) :
-                    0;
+
+            return
+                    //Thread.interrupted() 返回当前线程中断标记位，并且重置当前标记位 为 false 。
+                    Thread.interrupted() ?
+
+                            //transferAfterCancelledWait 这个方法只有在线程是被中断唤醒时 才会调用！
+                            (transferAfterCancelledWait(node) ? THROW_IE : REINTERRUPT) :
+
+                            0;
         }
 
         /**
@@ -2488,14 +2500,13 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
          * does nothing, depending on mode.
          */
         private void reportInterruptAfterWait(int interruptMode) throws InterruptedException {
-            //条件成立：说明在条件队列内发生过中断，此时await方法抛出中断异常
-            if (interruptMode == THROW_IE) {
-                throw new InterruptedException();
-            }
 
-            //条件成立：说明在条件队列外发生的中断，此时设置当前线程的中断标记位 为true
-            //中断处理 交给 你的业务处理。 如果你不处理，那什么事 也不会发生了...
-            else if (interruptMode == REINTERRUPT) {
+            if (interruptMode == THROW_IE) {
+                //条件成立：说明在条件队列内发生过中断，此时await方法抛出中断异常
+                throw new InterruptedException();
+            } else if (interruptMode == REINTERRUPT) {
+                //条件成立：说明在条件队列外发生的中断，此时设置当前线程的中断标记位 为true
+                //中断处理 交给 你的业务处理。 如果你不处理，那什么事 也不会发生了...
                 selfInterrupt();
             }
         }
@@ -2712,8 +2723,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         //  support for instrumentation
 
         /**
-         * Returns true if this condition was created by the given
-         * synchronization object.
+         * Returns true if this condition was created by the given synchronization object.
+         * -- 如果此条件是由给定的同步对象创建的，则返回true。
          *
          * @return {@code true} if owned
          */
