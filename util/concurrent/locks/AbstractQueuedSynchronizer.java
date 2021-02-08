@@ -768,7 +768,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
             if (
             /**
-             * h != null 成立，说明阻塞队列不为空..
+             * h != null，说明阻塞队列不为空..
              * h == null 什么时候会是这样呢？
              * latch创建出来后，没有任何线程调用过 await() 方法之前，
              * 有线程调用latch.countDown()操作 且触发了 唤醒阻塞节点的逻辑..
