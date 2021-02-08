@@ -1245,21 +1245,33 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      * @param arg the acquire argument
      */
     private void doAcquireSharedInterruptibly(int arg) throws InterruptedException {
+        //模式为 SHARED，将线程包装成node添加到阻塞队列
         final Node node = addWaiter(Node.SHARED);
         boolean failed = true;
         try {
             for (; ; ) {
                 final Node p = node.predecessor();
                 if (p == head) {
-                    int r = tryAcquireShared(arg);
-                    if (r >= 0) {//说明共享锁释放了
+                    //head.next 节点有一次获取锁的机会
+
+                    int r = tryAcquireShared(arg);//tryAcquireShared 方法由具体子类实现
+                    if (r >= 0) {
+                        //说明头节点释放了共享锁
                         setHeadAndPropagate(node, r);
                         p.next = null; // help GC
                         failed = false;
                         return;
                     }
                 }
-                if (shouldParkAfterFailedAcquire(p, node) && parkAndCheckInterrupt()) {
+
+                //如果当前线程的node不是head.next或者当前线程的node是head.next但是head还没有哦释放锁的时候会执行到下面
+                if (shouldParkAfterFailedAcquire(p, node)
+                        && parkAndCheckInterrupt()) {//当前线程很有可能在该方法挂起
+                    /**
+                     * shouldParkAfterFailedAcquire 方法会给当前线程node找一个好爸爸，
+                     *                              最终给爸爸节点的状态设置为SIGNAL,并且返回true
+                     * parkAndCheckInterrupt        挂起当前线程，在中断的时候会进入这里，并且抛出IE
+                     */
                     throw new InterruptedException();
                 }
             }
@@ -1615,8 +1627,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      * @throws InterruptedException if the current thread is interrupted
      */
     public final void acquireSharedInterruptibly(int arg) throws InterruptedException {
-        //条件成立：说明当前调用await方法的线程 已经是 中断状态了,直接抛出异常..
         if (Thread.interrupted()) {
+            //条件成立：说明当前调用await方法的线程 已经是 中断状态了,直接抛出异常..
             throw new InterruptedException();
         }
 
@@ -1624,12 +1636,19 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
          * 在CountDownLatch中：
          * return (getState() == 0) ? 1 : -1;
          * tryAcquireShared(arg) < 0：说明当前AQS.state > 0 ，此时将线程入队，然后等待唤醒..
-         * tryAcquireShared(arg) > 0：AQS.state == 0，此时就不会阻塞线程了..
-         * 对应业务层面 执行任务的线程已经将latch打破了。然后其他再调用latch.await的线程，就不会在这里阻塞了
          */
         if (tryAcquireShared(arg) < 0) {
+            //说明当前AQS的state > 0，极有可能还需要阻塞,需要将线程入队，然后挂起
             doAcquireSharedInterruptibly(arg);
         }
+
+        /**
+         * tryAcquireShared(arg) > 0：AQS.state == 0，此时就不会阻塞线程了..
+         * 对应业务层面 执行任务的线程已经将latch打破了。然后其他再调用latch.await的线程，就不会在这里阻塞了
+         *
+         * 如果执行到这里，说明state == 0,就不会阻塞当前线程，
+         * 对应的业务就是，当前state 已经为0之后，其他线程再去调用acquireSharedInterruptibly方法就不会再阻塞了
+         */
     }
 
     /**
