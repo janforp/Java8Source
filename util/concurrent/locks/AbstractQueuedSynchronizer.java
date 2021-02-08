@@ -2103,6 +2103,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         }
 
         //false:表示当前节点被中断唤醒时 不在 条件队列了..
+        //signal之后别中断
         return false;
     }
 
@@ -2533,9 +2534,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         private static final int THROW_IE = -1;
 
         /**
-         * Checks for interrupt, returning THROW_IE if interrupted
-         * before signalled, REINTERRUPT if after signalled, or
-         * 0 if not interrupted.
+         * Checks for interrupt, returning THROW_IE if interrupted before signalled, REINTERRUPT if after signalled, or 0 if not interrupted.
+         * -- 检查是否有中断，如果在发出信号之前被中断，则返回THROW_IE；在发出信号之后，则返回REINTERRUPT；如果没有被中断，则返回0。
          */
         private int checkInterruptWhileWaiting(Node node) {
 
@@ -2632,8 +2632,12 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
                 //checkInterruptWhileWaiting ：就算在condition队列挂起期间 线程发生中断了，对应的node也会被迁移到 “阻塞队列”。
                 if ((interruptMode = checkInterruptWhileWaiting(node)) != 0) {
+
+                    //如果 interruptMode == 0 ,则最多再循环一次，
+                    //因为 checkInterruptWhileWaiting 方法也会把中断node迁移到AQS阻塞队列中去，所以下次循环肯定也会退出
                     break;
                 }
+
             }
 
             /**
