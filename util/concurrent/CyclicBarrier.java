@@ -281,19 +281,19 @@ public class CyclicBarrier {
                 }
             }
 
-            //执行到这里，说明当前线程 并不是最后一个到达Barrier的线程..此时需要进入一个自旋中.
-
-            // loop until tripped, broken, interrupted, or timed out
-            //自旋，一直到 条件满足、当前代被打破、线程被中断，等待超时
+            /**
+             * 执行到这里，说明当前线程 并不是最后一个到达Barrier的线程..此时需要进入一个自旋中.
+             * loop until tripped(条件满足), broken(当前代被打破), interrupted(线程被中断), or timed out(等待超时)
+             */
             for (; ; ) {
                 try {
                     if (!timed) {
-                        //条件成立：说明当前线程是不指定超时时间的
+                        //条件成立：timed 为 false,说明当前线程是不指定超时时间的
                         //当前线程 会 释放掉lock，然后进入到trip条件队列的尾部，然后挂起自己，等待被唤醒。
-                        trip.await();
+                        trip.await();//阻塞！！
                     } else if (nanos > 0L) {
-                        //说明当前线程调用await方法时 是指定了 超时时间的！
-                        nanos = trip.awaitNanos(nanos);
+                        //timed 为 true并且时间>0,说明当前线程调用await方法时 是指定了 超时时间的！
+                        nanos = trip.awaitNanos(nanos);//阻塞！！
                     }
                 } catch (InterruptedException ie) {
                     //抛出中断异常，会进来这里。
@@ -305,46 +305,65 @@ public class CyclicBarrier {
                             //条件二：! g.broken 当前代如果没有被打破，那么当前线程就去打破，并且抛出异常..
                             && !g.broken) {
 
-                        //那么当前线程就去打破，并且抛出异常..
+                        //当前代如果没有被打破，那么当前线程就去打破，并且抛出异常..
                         breakBarrier();
                         throw ie;
                     } else {
-                        //执行到else有几种情况？
-                        //1.代发生了变化，这个时候就不需要抛出中断异常了，因为 代已经更新了，这里唤醒后就走正常逻辑了..只不过设置下 中断标记。
-                        //2.代没有发生变化，但是代被打破了，此时也不用返回中断异常，执行到下面的时候会抛出  brokenBarrier异常。也记录下中断标记位。
 
-                        // We're about to finish waiting even if we had not
-                        // been interrupted, so this interrupt is deemed to
-                        // "belong" to subsequent execution.
+                        /**
+                         * 执行到else有几种情况？
+                         * 1.代发生了变化(g != generation)，这个时候就不需要抛出中断异常了，
+                         *   因为 代已经更新了，这里唤醒后就走正常逻辑了..只不过设置下 中断标记。
+                         * 2.代没有发生变化，但是代被打破了(g == generation但是g.broken==true)，
+                         *   此时也不用返回中断异常，执行到下面的时候会抛出  brokenBarrier异常。
+                         *   也记录下中断标记位。
+                         *
+                         *  We're about to finish waiting even if we had not
+                         *  been interrupted, so this interrupt is deemed to
+                         *  "belong" to subsequent execution.
+                         *  -- 即使我们没有被中断，我们也将完成等待，因此该中断被视为“属于”后续执行。
+                         */
                         Thread.currentThread().interrupt();
                     }
                 }
 
-                //唤醒后，执行到这里，有几种情况？
-                //1.正常情况，当前barrier开启了新的一代（trip.signalAll()）
-                //2.当前Generation被打破，此时也会唤醒所有在trip上挂起的线程
-                //3.当前线程trip中等待超时，然后主动转移到 阻塞队列 然后获取到锁 唤醒。
+                //执行到这里，那么肯定是唤醒了
 
-                //条件成立：当前代已经被打破
+                /**
+                 * 唤醒后，执行到这里，有几种情况？
+                 * 1.正常情况，当前barrier开启了新的一代（trip.signalAll()）
+                 * 2.当前Generation被打破，此时也会唤醒所有在trip上挂起的线程
+                 * 3.当前线程trip(条件队列)中等待超时，然后主动转移到 阻塞队列 然后获取到锁 唤醒。
+                 */
                 if (g.broken) {
+                    //条件成立：当前代已经被打破
+                    //处理情况2.当前Generation被打破，此时也会唤醒所有在trip上挂起的线程
                     throw new BrokenBarrierException();
                 }
 
-                //唤醒后，执行到这里，有几种情况？
-                //1.正常情况，当前barrier开启了新的一代（trip.signalAll()）
-                //3.当前线程trip中等待超时，然后主动转移到 阻塞队列 然后获取到锁 唤醒。
-
+                /**
+                 * 唤醒后，执行到这里，有几种情况？
+                 * 1.正常情况，当前barrier开启了新的一代（trip.signalAll()）
+                 * 3.当前线程trip中等待超时，然后主动转移到 阻塞队列 然后获取到锁 唤醒。
+                 */
                 if (g != generation) {
-                    //条件成立：说明当前线程挂起期间，最后一个线程到位了，然后触发了开启新的一代的逻辑，此时唤醒trip条件队列内的线程。
-
-                    //返回当前线程的index。
+                    /**
+                     * 处理情况1.正常情况，当前barrier开启了新的一代（trip.signalAll()）
+                     * 条件成立：说明当前线程挂起期间，最后一个线程到位了，
+                     * 然后触发了开启新的一代的逻辑，此时唤醒trip条件队列内的线程。
+                     * 返回当前线程的index。
+                     */
                     return index;
                 }
 
                 //唤醒后，执行到这里，有几种情况？
                 //3.当前线程trip中等待超时，然后主动转移到 阻塞队列 然后获取到锁 唤醒。
 
+                /**
+                 * @see Condition#awaitNanos(long)
+                 */
                 if (timed && nanos <= 0L) {
+                    //处理情况3.当前线程trip中等待超时，然后主动转移到 阻塞队列 然后获取到锁 唤醒。
                     //打破barrier
                     breakBarrier();
                     //抛出超时异常.
