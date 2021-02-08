@@ -1,39 +1,5 @@
-/*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
- * Written by Doug Lea with assistance from members of JCP JSR-166
- * Expert Group and released to the public domain, as explained at
- * http://creativecommons.org/publicdomain/zero/1.0/
- */
-
 package java.util.concurrent;
+
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -54,7 +20,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * <p><b>Sample usage:</b> Here is an example of using a barrier in a
  * parallel decomposition design:
  *
- *  <pre> {@code
+ * <pre> {@code
  * class Solver {
  *   final int N;
  *   final float[][] data;
@@ -111,7 +77,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * {@link #await} returns the arrival index of that thread at the barrier.
  * You can then choose which thread should execute the barrier action, for
  * example:
- *  <pre> {@code
+ * <pre> {@code
  * if (barrier.await() == 0) {
  *   // log the completion of this iteration
  * }}</pre>
@@ -131,12 +97,13 @@ import java.util.concurrent.locks.ReentrantLock;
  * <i>happen-before</i> actions following a successful return from the
  * corresponding {@code await()} in other threads.
  *
- * @since 1.5
- * @see CountDownLatch
- *
  * @author Doug Lea
+ * @see CountDownLatch
+ * @since 1.5
  */
+@SuppressWarnings("all")
 public class CyclicBarrier {
+
     /**
      * Each use of the barrier is represented as a generation instance.
      * The generation changes whenever the barrier is tripped, or
@@ -147,20 +114,41 @@ public class CyclicBarrier {
      * and all the rest are either broken or tripped.
      * There need not be an active generation if there has been a break
      * but no subsequent reset.
+     * 表示 “代”这个概念
      */
     private static class Generation {
+
+        //表示当前“代”是否被打破，如果代被打破 ，那么再来到这一代的线程 就会直接抛出 BrokenException异常
+        //且在这一代 挂起的线程 都会被唤醒，然后抛出 BrokerException异常。
         boolean broken = false;
     }
 
-    /** The lock for guarding barrier entry */
+    /**
+     * The lock for guarding barrier entry
+     */
+    //因为barrier实现是依赖于Condition条件队列的，condition条件队列必须依赖lock才能使用。
     private final ReentrantLock lock = new ReentrantLock();
-    /** Condition to wait on until tripped */
+
+    /**
+     * Condition to wait on until tripped
+     */
+    //线程挂起实现使用的 condition 队列。条件：当前代所有线程到位，这个条件队列内的线程 才会被唤醒。
     private final Condition trip = lock.newCondition();
-    /** The number of parties */
+
+    /**
+     * The number of parties
+     */
+    //Barrier需要参与进来的线程数量
     private final int parties;
+
     /* The command to run when tripped */
+    //当前代 最后一个到位的线程 需要执行的事件
     private final Runnable barrierCommand;
-    /** The current generation */
+
+    /**
+     * The current generation
+     */
+    //表示barrier对象 当前 “代”
     private Generation generation = new Generation();
 
     /**
@@ -168,77 +156,141 @@ public class CyclicBarrier {
      * on each generation.  It is reset to parties on each new
      * generation or when broken.
      */
+    //表示当前“代”还有多少个线程 未到位。
+    //初始值为parties
     private int count;
 
     /**
      * Updates state on barrier trip and wakes up everyone.
      * Called only while holding lock.
+     * 开启下一代，当这一代 所有线程到位后（假设barrierCommand不为空，还需要最后一个线程执行完事件），会调用nextGeneration()开启新的一代。
      */
     private void nextGeneration() {
+        //将在trip条件队列内挂起的线程 全部唤醒
         // signal completion of last generation
         trip.signalAll();
+
+        //重置count为parties
         // set up next generation
         count = parties;
+
+        //开启新的一代..使用一个新的 generation对象，表示新的一代，新的一代和上一代 没有任何关系。
         generation = new Generation();
     }
 
     /**
      * Sets current barrier generation as broken and wakes up everyone.
      * Called only while holding lock.
+     * 打破barrier屏障，在屏障内的线程 都会抛出异常..
      */
     private void breakBarrier() {
+        //将代中的broken设置为true，表示这一代是被打破了的，再来到这一代的线程，直接抛出异常.
         generation.broken = true;
+        //重置count为parties
         count = parties;
+        //将在trip条件队列内挂起的线程 全部唤醒，唤醒后的线程 会检查当前代 是否是打破的，
+        //如果是打破的话，接下来的逻辑和 开启下一代 唤醒的逻辑不一样.
         trip.signalAll();
     }
 
     /**
      * Main barrier code, covering the various policies.
+     * timed：表示当前调用await方法的线程是否指定了 超时时长，如果true 表示 线程是响应超时的
+     * nanos：线程等待超时时长 纳秒，如果timed == false ,nanos == 0
      */
     private int dowait(boolean timed, long nanos)
-        throws InterruptedException, BrokenBarrierException,
-               TimeoutException {
+            throws InterruptedException, BrokenBarrierException,
+            TimeoutException {
+        //获取barrier全局锁对象
         final ReentrantLock lock = this.lock;
+        //加锁
+        //为什么要加锁呢？
+        //因为 barrier的挂起 和 唤醒 依赖的组件是 condition。
         lock.lock();
         try {
+            //获取barrier当前的 “代”
             final Generation g = generation;
 
-            if (g.broken)
+            //如果当前代是已经被打破状态，则当前调用await方法的线程，直接抛出Broken异常
+            if (g.broken) {
                 throw new BrokenBarrierException();
+            }
 
+            //如果当前线程的中断标记位 为 true，则打破当前代，然后当前线程抛出 中断异常
             if (Thread.interrupted()) {
+                //1.设置当前代的状态为broken状态  2.唤醒在trip 条件队列内的线程
                 breakBarrier();
                 throw new InterruptedException();
             }
 
+            //执行到这里，说明 当前线程中断状态是正常的 false， 当前代的broken为 false（未打破状态）
+            //正常逻辑...
+
+            //假设 parties 给的是 5，那么index对应的值为 4,3,2,1,0
             int index = --count;
+            //条件成立：说明当前线程是最后一个到达barrier的线程，此时需要做什么呢？
             if (index == 0) {  // tripped
+                //标记：true表示 最后一个线程 执行cmd时未抛异常。  false，表示最后一个线程执行cmd时抛出异常了.
+                //cmd就是创建 barrier对象时 指定的第二个 Runnable接口实现，这个可以为null
                 boolean ranAction = false;
                 try {
+
                     final Runnable command = barrierCommand;
-                    if (command != null)
+                    //条件成立：说明创建barrier对象时 指定 Runnable接口了，这个时候最后一个到达的线程 就需要执行这个接口
+                    if (command != null) {
                         command.run();
+                    }
+
+                    //command.run()未抛出异常的话，那么线程会执行到这里。
                     ranAction = true;
+
+                    //开启新的一代
+                    //1.唤醒trip条件队列内挂起的线程，被唤醒的线程 会依次 获取到lock，然后依次退出await方法。
+                    //2.重置count 为 parties
+                    //3.创建一个新的generation对象，表示新的一代
                     nextGeneration();
+                    //返回0，因为当前线程是此 代 最后一个到达的线程，所以Index == 0
                     return 0;
                 } finally {
                     if (!ranAction)
+                    //如果command.run()执行抛出异常的话，会进入到这里。
+                    {
                         breakBarrier();
+                    }
                 }
             }
 
+            //执行到这里，说明当前线程 并不是最后一个到达Barrier的线程..此时需要进入一个自旋中.
+
             // loop until tripped, broken, interrupted, or timed out
-            for (;;) {
+            //自旋，一直到 条件满足、当前代被打破、线程被中断，等待超时
+            for (; ; ) {
                 try {
+                    //条件成立：说明当前线程是不指定超时时间的
                     if (!timed)
+                    //当前线程 会 释放掉lock，然后进入到trip条件队列的尾部，然后挂起自己，等待被唤醒。
+                    {
                         trip.await();
-                    else if (nanos > 0L)
+                    } else if (nanos > 0L)
+                    //说明当前线程调用await方法时 是指定了 超时时间的！
+                    {
                         nanos = trip.awaitNanos(nanos);
+                    }
                 } catch (InterruptedException ie) {
-                    if (g == generation && ! g.broken) {
+                    //抛出中断异常，会进来这里。
+                    //什么时候会抛出InterruptedException异常呢？
+                    //Node节点在 条件队列内 时 收到中断信号时 会抛出中断异常！
+
+                    //条件一：g == generation 成立，说明当前代并没有变化。
+                    //条件二：! g.broken 当前代如果没有被打破，那么当前线程就去打破，并且抛出异常..
+                    if (g == generation && !g.broken) {
                         breakBarrier();
                         throw ie;
                     } else {
+                        //执行到else有几种情况？
+                        //1.代发生了变化，这个时候就不需要抛出中断异常了，因为 代已经更新了，这里唤醒后就走正常逻辑了..只不过设置下 中断标记。
+                        //2.代没有发生变化，但是代被打破了，此时也不用返回中断异常，执行到下面的时候会抛出  brokenBarrier异常。也记录下中断标记位。
+
                         // We're about to finish waiting even if we had not
                         // been interrupted, so this interrupt is deemed to
                         // "belong" to subsequent execution.
@@ -246,14 +298,36 @@ public class CyclicBarrier {
                     }
                 }
 
-                if (g.broken)
-                    throw new BrokenBarrierException();
+                //唤醒后，执行到这里，有几种情况？
+                //1.正常情况，当前barrier开启了新的一代（trip.signalAll()）
+                //2.当前Generation被打破，此时也会唤醒所有在trip上挂起的线程
+                //3.当前线程trip中等待超时，然后主动转移到 阻塞队列 然后获取到锁 唤醒。
 
+                //条件成立：当前代已经被打破
+                if (g.broken)
+                //线程唤醒后依次抛出BrokenBarrier异常。
+                {
+                    throw new BrokenBarrierException();
+                }
+
+                //唤醒后，执行到这里，有几种情况？
+                //1.正常情况，当前barrier开启了新的一代（trip.signalAll()）
+                //3.当前线程trip中等待超时，然后主动转移到 阻塞队列 然后获取到锁 唤醒。
+
+                //条件成立：说明当前线程挂起期间，最后一个线程到位了，然后触发了开启新的一代的逻辑，此时唤醒trip条件队列内的线程。
                 if (g != generation)
+                //返回当前线程的index。
+                {
                     return index;
+                }
+
+                //唤醒后，执行到这里，有几种情况？
+                //3.当前线程trip中等待超时，然后主动转移到 阻塞队列 然后获取到锁 唤醒。
 
                 if (timed && nanos <= 0L) {
+                    //打破barrier
                     breakBarrier();
+                    //抛出超时异常.
                     throw new TimeoutException();
                 }
             }
@@ -269,14 +343,21 @@ public class CyclicBarrier {
      * performed by the last thread entering the barrier.
      *
      * @param parties the number of threads that must invoke {@link #await}
-     *        before the barrier is tripped
+     * before the barrier is tripped
      * @param barrierAction the command to execute when the barrier is
-     *        tripped, or {@code null} if there is no action
+     * tripped, or {@code null} if there is no action
      * @throws IllegalArgumentException if {@code parties} is less than 1
+     * parties：Barrier需要参与的线程数量，每次屏障需要参与的线程数
+     * barrierAction：当前“代”最后一个到位的线程，需要执行的事件（可以为null）
      */
     public CyclicBarrier(int parties, Runnable barrierAction) {
-        if (parties <= 0) throw new IllegalArgumentException();
+        //因为小于等于0 的barrier没有任何意义..
+        if (parties <= 0) {
+            throw new IllegalArgumentException();
+        }
+
         this.parties = parties;
+        //count的初始值 就是parties，后面当前代每到位一个线程，count--
         this.count = parties;
         this.barrierCommand = barrierAction;
     }
@@ -287,7 +368,7 @@ public class CyclicBarrier {
      * does not perform a predefined action when the barrier is tripped.
      *
      * @param parties the number of threads that must invoke {@link #await}
-     *        before the barrier is tripped
+     * before the barrier is tripped
      * @throws IllegalArgumentException if {@code parties} is less than 1
      */
     public CyclicBarrier(int parties) {
@@ -347,15 +428,15 @@ public class CyclicBarrier {
      * the broken state.
      *
      * @return the arrival index of the current thread, where index
-     *         {@code getParties() - 1} indicates the first
-     *         to arrive and zero indicates the last to arrive
+     * {@code getParties() - 1} indicates the first
+     * to arrive and zero indicates the last to arrive
      * @throws InterruptedException if the current thread was interrupted
-     *         while waiting
+     * while waiting
      * @throws BrokenBarrierException if <em>another</em> thread was
-     *         interrupted or timed out while the current thread was
-     *         waiting, or the barrier was reset, or the barrier was
-     *         broken when {@code await} was called, or the barrier
-     *         action (if present) failed due to an exception
+     * interrupted or timed out while the current thread was
+     * waiting, or the barrier was reset, or the barrier was
+     * broken when {@code await} was called, or the barrier
+     * action (if present) failed due to an exception
      */
     public int await() throws InterruptedException, BrokenBarrierException {
         try {
@@ -416,22 +497,22 @@ public class CyclicBarrier {
      * @param timeout the time to wait for the barrier
      * @param unit the time unit of the timeout parameter
      * @return the arrival index of the current thread, where index
-     *         {@code getParties() - 1} indicates the first
-     *         to arrive and zero indicates the last to arrive
+     * {@code getParties() - 1} indicates the first
+     * to arrive and zero indicates the last to arrive
      * @throws InterruptedException if the current thread was interrupted
-     *         while waiting
+     * while waiting
      * @throws TimeoutException if the specified timeout elapses.
-     *         In this case the barrier will be broken.
+     * In this case the barrier will be broken.
      * @throws BrokenBarrierException if <em>another</em> thread was
-     *         interrupted or timed out while the current thread was
-     *         waiting, or the barrier was reset, or the barrier was broken
-     *         when {@code await} was called, or the barrier action (if
-     *         present) failed due to an exception
+     * interrupted or timed out while the current thread was
+     * waiting, or the barrier was reset, or the barrier was broken
+     * when {@code await} was called, or the barrier action (if
+     * present) failed due to an exception
      */
     public int await(long timeout, TimeUnit unit)
-        throws InterruptedException,
-               BrokenBarrierException,
-               TimeoutException {
+            throws InterruptedException,
+            BrokenBarrierException,
+            TimeoutException {
         return dowait(true, unit.toNanos(timeout));
     }
 
@@ -439,9 +520,9 @@ public class CyclicBarrier {
      * Queries if this barrier is in a broken state.
      *
      * @return {@code true} if one or more parties broke out of this
-     *         barrier due to interruption or timeout since
-     *         construction or the last reset, or a barrier action
-     *         failed due to an exception; {@code false} otherwise.
+     * barrier due to interruption or timeout since
+     * construction or the last reset, or a barrier action
+     * failed due to an exception; {@code false} otherwise.
      */
     public boolean isBroken() {
         final ReentrantLock lock = this.lock;
