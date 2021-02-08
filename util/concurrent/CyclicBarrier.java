@@ -166,6 +166,11 @@ public class CyclicBarrier {
      * Updates state on barrier trip and wakes up everyone.
      * Called only while holding lock.
      * 开启下一代，当这一代 所有线程到位后（假设barrierCommand不为空，还需要最后一个线程执行完事件），会调用nextGeneration()开启新的一代。
+     *
+     * 开启新的一代
+     * 1.唤醒trip条件队列内挂起的线程，被唤醒的线程 会依次 获取到lock，然后依次退出await方法。
+     * 2.重置count 为 parties
+     * 3.创建一个新的generation对象，表示新的一代
      */
     private void nextGeneration() {
         //将在trip条件队列内挂起的线程 全部唤醒
@@ -229,18 +234,19 @@ public class CyclicBarrier {
             //假设 parties 给的是 5，那么index对应的值为 4,3,2,1,0
             int index = --count;
             //条件成立：说明当前线程是最后一个到达barrier的线程，此时需要做什么呢？
-            if (index == 0) {  // tripped
-                //标记：true表示 最后一个线程 执行cmd时未抛异常。  false，表示最后一个线程执行cmd时抛出异常了.
-                //cmd就是创建 barrier对象时 指定的第二个 Runnable接口实现，这个可以为null
+            if (index == 0) {  // tripped -- 绊倒了
+
+                /**
+                 * 标记：true表示 最后一个线程 执行 command 时未抛异常。  false，表示最后一个线程执行 command 时抛出异常了.
+                 * command 就是创建 barrier对象时 指定的第二个 Runnable接口实现，这个可以为null
+                 */
                 boolean ranAction = false;
                 try {
-
                     final Runnable command = barrierCommand;
                     //条件成立：说明创建barrier对象时 指定 Runnable接口了，这个时候最后一个到达的线程 就需要执行这个接口
                     if (command != null) {
                         command.run();
                     }
-
                     //command.run()未抛出异常的话，那么线程会执行到这里。
                     ranAction = true;
 
@@ -252,9 +258,8 @@ public class CyclicBarrier {
                     //返回0，因为当前线程是此 代 最后一个到达的线程，所以Index == 0
                     return 0;
                 } finally {
-                    if (!ranAction)
-                    //如果command.run()执行抛出异常的话，会进入到这里。
-                    {
+                    if (!ranAction) {
+                        //如果command.run()执行抛出异常的话，会进入到这里。
                         breakBarrier();
                     }
                 }
@@ -266,14 +271,12 @@ public class CyclicBarrier {
             //自旋，一直到 条件满足、当前代被打破、线程被中断，等待超时
             for (; ; ) {
                 try {
-                    //条件成立：说明当前线程是不指定超时时间的
-                    if (!timed)
-                    //当前线程 会 释放掉lock，然后进入到trip条件队列的尾部，然后挂起自己，等待被唤醒。
-                    {
+                    if (!timed) {
+                        //条件成立：说明当前线程是不指定超时时间的
+                        //当前线程 会 释放掉lock，然后进入到trip条件队列的尾部，然后挂起自己，等待被唤醒。
                         trip.await();
-                    } else if (nanos > 0L)
-                    //说明当前线程调用await方法时 是指定了 超时时间的！
-                    {
+                    } else if (nanos > 0L) {
+                        //说明当前线程调用await方法时 是指定了 超时时间的！
                         nanos = trip.awaitNanos(nanos);
                     }
                 } catch (InterruptedException ie) {
@@ -282,8 +285,11 @@ public class CyclicBarrier {
                     //Node节点在 条件队列内 时 收到中断信号时 会抛出中断异常！
 
                     //条件一：g == generation 成立，说明当前代并没有变化。
-                    //条件二：! g.broken 当前代如果没有被打破，那么当前线程就去打破，并且抛出异常..
-                    if (g == generation && !g.broken) {
+                    if (g == generation
+                            //条件二：! g.broken 当前代如果没有被打破，那么当前线程就去打破，并且抛出异常..
+                            && !g.broken) {
+
+                        //那么当前线程就去打破，并且抛出异常..
                         breakBarrier();
                         throw ie;
                     } else {
@@ -304,9 +310,7 @@ public class CyclicBarrier {
                 //3.当前线程trip中等待超时，然后主动转移到 阻塞队列 然后获取到锁 唤醒。
 
                 //条件成立：当前代已经被打破
-                if (g.broken)
-                //线程唤醒后依次抛出BrokenBarrier异常。
-                {
+                if (g.broken) {
                     throw new BrokenBarrierException();
                 }
 
@@ -314,10 +318,10 @@ public class CyclicBarrier {
                 //1.正常情况，当前barrier开启了新的一代（trip.signalAll()）
                 //3.当前线程trip中等待超时，然后主动转移到 阻塞队列 然后获取到锁 唤醒。
 
-                //条件成立：说明当前线程挂起期间，最后一个线程到位了，然后触发了开启新的一代的逻辑，此时唤醒trip条件队列内的线程。
-                if (g != generation)
-                //返回当前线程的index。
-                {
+                if (g != generation) {
+                    //条件成立：说明当前线程挂起期间，最后一个线程到位了，然后触发了开启新的一代的逻辑，此时唤醒trip条件队列内的线程。
+
+                    //返回当前线程的index。
                     return index;
                 }
 
