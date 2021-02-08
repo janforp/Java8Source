@@ -159,8 +159,8 @@ public class CountDownLatch {
             for (; ; ) {
                 //获取当前AQS.state
                 int c = getState();
-                //条件成立：说明前面已经有线程 触发 唤醒操作了，这里返回false
                 if (c == 0) {
+                    //条件成立：说明前面已经有线程 触发 唤醒操作了，这里返回false
                     return false;
                 }
 
@@ -168,11 +168,14 @@ public class CountDownLatch {
 
                 int nextc = c - 1;
 
-                //cas成功，说明当前线程执行 tryReleaseShared 方法 c-1之前，没有其它线程 修改过 state。
                 if (compareAndSetState(c, nextc)) {
-                    //nextc == 0 ：true ，说明当前调用 countDown() 方法的线程 就是需要触发 唤醒操作的线程.
+                    //cas成功，说明当前线程执行 tryReleaseShared 方法 c-1 之前，没有其它线程 修改过 state。
+
+                    //如果nextc == 0 ，说明当前调用 countDown() 方法的线程 就是需要触发 唤醒操作的线程.
                     return nextc == 0;
                 }
+
+                //cas失败，则继续
             }
         }
     }

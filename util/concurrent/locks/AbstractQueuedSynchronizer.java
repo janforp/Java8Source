@@ -761,7 +761,6 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      * 1.latch.countDown() -> AQS.state == 0 -> doReleaseShared() 唤醒当前阻塞队列内的 head.next 对应的线程。
      * 2.被唤醒的线程 -> doAcquireSharedInterruptibly parkAndCheckInterrupt() 唤醒 -> setHeadAndPropagate() -> doReleaseShared()
      */
-    //AQS.doReleaseShared
     private void doReleaseShared() {
         for (; ; ) {
             //获取当前AQS 内的 头结点
@@ -1696,9 +1695,16 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      * @return the value returned from {@link #tryReleaseShared}
      */
     public final boolean releaseShared(int arg) {
-        //条件成立：说明当前调用latch.countDown() 方法线程 正好是 state - 1 == 0 的这个线程，需要做触发唤醒 await状态的线程。
         if (tryReleaseShared(arg)) {
-            //调用countDown() 方法的线程 只有一个线程会进入到这个 if块 里面，去调用 doReleaseShared() 唤醒 阻塞状态的线程的逻辑。
+            //条件成立：说明当前调用latch.countDown() 方法线程 正好是 state - 1 == 0 的这个线程，需要做触发唤醒 await状态的线程。
+
+            /**
+             * 调用countDown的线程很多
+             * 但是只有一个线程使state=0，然后进入该if代码块
+             *
+             * 调用countDown() 方法的线程 只有一个线程会进入到这个 if块 里面，
+             * 去调用 doReleaseShared() 唤醒 阻塞状态的线程的逻辑。
+             */
             doReleaseShared();
             return true;
         }
