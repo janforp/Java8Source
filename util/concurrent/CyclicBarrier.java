@@ -210,9 +210,10 @@ public class CyclicBarrier {
     private int dowait(boolean timed, long nanos) throws InterruptedException, BrokenBarrierException, TimeoutException {
         //获取barrier全局锁对象
         final ReentrantLock lock = this.lock;
-        //加锁
-        //为什么要加锁呢？
-        //因为 barrier的挂起 和 唤醒 依赖的组件是 condition。
+        /**
+         * 为什么要加锁呢？
+         * 因为 barrier的挂起 和 唤醒 依赖的组件是 condition。而 condition 必须属于某个锁
+         */
         lock.lock();
         try {
             //获取barrier当前的 “代”
@@ -230,13 +231,19 @@ public class CyclicBarrier {
                 throw new InterruptedException();
             }
 
-            //执行到这里，说明 当前线程中断状态是正常的 false， 当前代的broken为 false（未打破状态）
-            //正常逻辑...
+            /**
+             * 执行到这里，说明
+             * 1.当前线程中断状态是正常的 false， 没有中断
+             * 2.当前代的broken为 false（未打破状态），没有打破
+             *
+             * 大部分情况会执行到这里的
+             */
 
             //假设 parties 给的是 5，那么index对应的值为 4,3,2,1,0
+            //也就是每次正常的调用该方法，count都会-1，说明一个线程满足了条件
             int index = --count;
-            //条件成立：说明当前线程是最后一个到达barrier的线程，此时需要做什么呢？
             if (index == 0) {  // tripped -- 绊倒了
+                //条件成立：说明当前线程是最后一个到达barrier的线程，此时需要做什么呢？
 
                 /**
                  * 标记：true表示 最后一个线程 执行 command 时未抛异常。  false，表示最后一个线程执行 command 时抛出异常了.
