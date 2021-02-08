@@ -1213,8 +1213,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      *
      * @param arg the acquire argument
      */
-    private void doAcquireSharedInterruptibly(int arg)
-            throws InterruptedException {
+    private void doAcquireSharedInterruptibly(int arg) throws InterruptedException {
         final Node node = addWaiter(Node.SHARED);
         boolean failed = true;
         try {
@@ -1229,8 +1228,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
                         return;
                     }
                 }
-                if (shouldParkAfterFailedAcquire(p, node) &&
-                        parkAndCheckInterrupt()) {
+                if (shouldParkAfterFailedAcquire(p, node) && parkAndCheckInterrupt()) {
                     throw new InterruptedException();
                 }
             }
@@ -1585,8 +1583,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      * you like.
      * @throws InterruptedException if the current thread is interrupted
      */
-    public final void acquireSharedInterruptibly(int arg)
-            throws InterruptedException {
+    public final void acquireSharedInterruptibly(int arg) throws InterruptedException {
         if (Thread.interrupted()) {
             throw new InterruptedException();
         }

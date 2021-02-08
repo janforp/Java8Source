@@ -1,32 +1,42 @@
 package java.util.concurrent;
+
 import java.util.concurrent.locks.AbstractQueuedSynchronizer;
 
 /**
- * A synchronization aid that allows one or more threads to wait until
- * a set of operations being performed in other threads completes.
+ * A synchronization aid that allows one or more threads to wait until a set of operations being performed in other threads completes.
+ * -- 一种同步工具，它允许一个或多个线程等待，直到在其他线程中执行的一组操作完成为止。
  *
  * <p>A {@code CountDownLatch} is initialized with a given <em>count</em>.
- * The {@link #await await} methods block until the current count reaches
- * zero due to invocations of the {@link #countDown} method, after which
- * all waiting threads are released and any subsequent invocations of
- * {@link #await await} return immediately.  This is a one-shot phenomenon
- * -- the count cannot be reset.  If you need a version that resets the
- * count, consider using a {@link CyclicBarrier}.
+ * -- {@code CountDownLatch}用给定的<em> count初始化
  *
- * <p>A {@code CountDownLatch} is a versatile synchronization tool
- * and can be used for a number of purposes.  A
- * {@code CountDownLatch} initialized with a count of one serves as a
- * simple on/off latch, or gate: all threads invoking {@link #await await}
- * wait at the gate until it is opened by a thread invoking {@link
- * #countDown}.  A {@code CountDownLatch} initialized to <em>N</em>
- * can be used to make one thread wait until <em>N</em> threads have
- * completed some action, or some action has been completed N times.
+ * The await methods block until the current count reaches zero due to invocations of the countDown method,
+ * after which all waiting threads are released and any subsequent invocations of await return immediately.
+ * -- 由于countCount方法的调用，直到当前计数达到零为止，await方法将阻塞，此后所有释放的线程将被释放，并且任何随后的await调用将立即返回。
  *
- * <p>A useful property of a {@code CountDownLatch} is that it
- * doesn't require that threads calling {@code countDown} wait for
- * the count to reach zero before proceeding, it simply prevents any
- * thread from proceeding past an {@link #await await} until all
- * threads could pass.
+ * This is a one-shot phenomenon
+ * -- the count cannot be reset.
+ * -- 意思就是无法重复使用，因为count无法重置
+ *
+ * If you need a version that resets the count, consider using a {@link CyclicBarrier}.
+ *
+ * A CountDownLatch is a versatile synchronization tool and can be used for a number of purposes.
+ * -- CountDownLatch是一种多功能的同步工具，可以用于多种用途。
+ *
+ *
+ * A CountDownLatch initialized with a count of one serves as a simple on/off latch, or gate:
+ * -- 用一个计数初始化的CountDownLatch用作简单的开/关锁存器或门：
+ *
+ * all threads invoking await wait at the gate until it is opened by a thread invoking countDown.
+ * -- 所有调用线程的等待都在闸门处等待，直到它被调用countDown的线程打开。
+ *
+ * A CountDownLatch initialized to N can be used to make one thread wait until N threads have completed some action,
+ * or some action has been completed N times.
+ * -- 初始化为N的CountDownLatch可以用于使一个线程等待，直到N个线程完成某个动作或某个动作已经完成N次。!!!!！！！！！！！！！！
+ *
+ * A useful property of a CountDownLatch is that it doesn't require that threads calling countDown
+ * wait for the count to reach zero before proceeding, it simply prevents any
+ * thread from proceeding past an await until all threads could pass.
+ * -- CountDownLatch的一个有用属性是，它不需要调用countDown的线程在继续进行操作之前就不必等待计数达到零，它只是防止任何线程经过等待状态直到所有线程都可以通过。
  *
  * <p><b>Sample usage:</b> Here is a pair of classes in which a group
  * of worker threads use two countdown latches:
@@ -115,15 +125,18 @@ import java.util.concurrent.locks.AbstractQueuedSynchronizer;
  * actions following a successful return from a corresponding
  * {@code await()} in another thread.
  *
- * @since 1.5
  * @author Doug Lea
+ * @since 1.5
  */
+@SuppressWarnings("all")
 public class CountDownLatch {
+
     /**
      * Synchronization control For CountDownLatch.
      * Uses AQS state to represent count.
      */
     private static final class Sync extends AbstractQueuedSynchronizer {
+
         private static final long serialVersionUID = 4982264981922014374L;
 
         Sync(int count) {
@@ -142,7 +155,7 @@ public class CountDownLatch {
          * 更新 AQS.state 值，每调用一次，state值减一，当state -1 正好为0时，返回true
          */
         protected boolean tryReleaseShared(int releases) {
-            // Decrement count; signal when transition to zero
+            // Decrement count; signal when transition to zero -- 递减计数；过渡到零时发出信号
             for (; ; ) {
                 //获取当前AQS.state
                 int c = getState();
@@ -156,9 +169,8 @@ public class CountDownLatch {
                 int nextc = c - 1;
 
                 //cas成功，说明当前线程执行 tryReleaseShared 方法 c-1之前，没有其它线程 修改过 state。
-                if (compareAndSetState(c, nextc))
-                //nextc == 0 ：true ，说明当前调用 countDown() 方法的线程 就是需要触发 唤醒操作的线程.
-                {
+                if (compareAndSetState(c, nextc)) {
+                    //nextc == 0 ：true ，说明当前调用 countDown() 方法的线程 就是需要触发 唤醒操作的线程.
                     return nextc == 0;
                 }
             }
@@ -171,11 +183,13 @@ public class CountDownLatch {
      * Constructs a {@code CountDownLatch} initialized with the given count.
      *
      * @param count the number of times {@link #countDown} must be invoked
-     *        before threads can pass through {@link #await}
+     * before threads can pass through {@link #await}
      * @throws IllegalArgumentException if {@code count} is negative
      */
     public CountDownLatch(int count) {
-        if (count < 0) throw new IllegalArgumentException("count < 0");
+        if (count < 0) {
+            throw new IllegalArgumentException("count < 0");
+        }
         this.sync = new Sync(count);
     }
 
@@ -204,7 +218,7 @@ public class CountDownLatch {
      * interrupted status is cleared.
      *
      * @throws InterruptedException if the current thread is interrupted
-     *         while waiting
+     * while waiting
      */
     public void await() throws InterruptedException {
         sync.acquireSharedInterruptibly(1);
@@ -247,12 +261,11 @@ public class CountDownLatch {
      * @param timeout the maximum time to wait
      * @param unit the time unit of the {@code timeout} argument
      * @return {@code true} if the count reached zero and {@code false}
-     *         if the waiting time elapsed before the count reached zero
+     * if the waiting time elapsed before the count reached zero
      * @throws InterruptedException if the current thread is interrupted
-     *         while waiting
+     * while waiting
      */
-    public boolean await(long timeout, TimeUnit unit)
-            throws InterruptedException {
+    public boolean await(long timeout, TimeUnit unit) throws InterruptedException {
         return sync.tryAcquireSharedNanos(1, unit.toNanos(timeout));
     }
 
