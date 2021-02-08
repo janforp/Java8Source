@@ -766,59 +766,69 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         for (; ; ) {
             //获取当前AQS 内的 头结点
             Node h = head;
-            //条件一：h != null 成立，说明阻塞队列不为空..
-            //不成立：h == null 什么时候会是这样呢？
-            //latch创建出来后，没有任何线程调用过 await() 方法之前，有线程调用latch.countDown()操作 且触发了 唤醒阻塞节点的逻辑..
 
-            //条件二：h != tail 成立，说明当前阻塞队列内，除了head节点以外  还有其他节点。
-            //h == tail  -> head 和 tail 指向的是同一个node对象。 什么时候会有这种情况呢？
-            //1. 正常唤醒情况下，依次获取到 共享锁，当前线程执行到这里时 （这个线程就是 tail 节点。）
-            //2. 第一个调用await()方法的线程 与 调用countDown()且触发唤醒阻塞节点的线程 出现并发了..
-            //   因为await()线程是第一个调用 latch.await()的线程，此时队列内什么也没有，它需要补充创建一个Head节点，然后再次自旋时入队
-            //   在await()线程入队完成之前，假设当前队列内 只有 刚刚补充创建的空元素 head 。
-            //   同期，外部有一个调用countDown()的线程，将state 值从1，修改为0了，那么这个线程需要做 唤醒 阻塞队列内元素的逻辑..
-            //   注意：调用await()的线程 因为完全入队完成之后，再次回到上层方法 doAcquireSharedInterruptibly 会进入到自旋中，
-            //   获取当前元素的前驱，判断自己是head.next， 所以接下来该线程又会将自己设置为 head，然后该线程就从await()方法返回了...
-            if (h != null && h != tail) {
+            if (
+            /**
+             * h != null 成立，说明阻塞队列不为空..
+             * h == null 什么时候会是这样呢？
+             * latch创建出来后，没有任何线程调用过 await() 方法之前，
+             * 有线程调用latch.countDown()操作 且触发了 唤醒阻塞节点的逻辑..
+             */
+                    h != null
+                            /**
+                             * 条件二：h != tail 成立，说明当前阻塞队列内，除了head节点以外  还有其他节点。
+                             * h == tail  说明 head 和 tail 指向的是同一个node对象。
+                             * 什么时候会有这种情况呢？
+                             * 1. 正常唤醒情况下，依次获取到 共享锁，当前线程执行到这里时 （这个线程就是 tail 节点。）
+                             * 2. 第一个调用await()方法的线程 与 调用countDown()且触发唤醒阻塞节点的线程 出现并发了..
+                             *    因为await()线程是第一个调用 latch.await()的线程，此时队列内什么也没有，它需要补充创建一个Head节点，然后再次自旋时入队
+                             *    在await()线程入队完成之前，假设当前队列内 只有 刚刚补充创建的空元素 head 。
+                             *    同期，外部有一个调用countDown()的线程，将state 值从1，修改为0了，那么这个线程需要做 唤醒 阻塞队列内元素的逻辑..
+                             *    注意：调用await()的线程 因为完全入队完成之后，再次回到上层方法 doAcquireSharedInterruptibly 会进入到自旋中，
+                             *    获取当前元素的前驱，判断自己是head.next， 所以接下来该线程又会将自己设置为 head，然后该线程就从await()方法返回了...
+                             */
+                            && h != tail) {
+
                 //执行到if里面，说明当前head 一定有 后继节点!
 
                 int ws = h.waitStatus;
                 //当前head状态 为 signal 说明 后继节点并没有被唤醒过呢...
                 if (ws == Node.SIGNAL) {
-                    //唤醒后继节点前 将head节点的状态改为 0
-                    //这里为什么，使用CAS呢？ 回头说...
-                    //当doReleaseShared方法 存在多个线程 唤醒 head.next 逻辑时，
-                    //CAS 可能会失败...
-                    //案例：
-                    //t3 线程在if(h == head) 返回false时，t3 会继续自旋. 参与到 唤醒下一个head.next的逻辑..
-                    //t3 此时执行到 CAS WaitStatus(h,Node.SIGNAL, 0) 成功.. t4 在t3修改成功之前，也进入到 if (ws == Node.SIGNAL) 里面了，
-                    //但是t4 修改 CAS WaitStatus(h,Node.SIGNAL, 0) 会失败，因为 t3 改过了...
+                    /**
+                     * 唤醒后继节点前 将head节点的状态改为 0
+                     * 这里为什么，使用CAS呢？ 回头说...
+                     * 当doReleaseShared方法 存在多个线程 唤醒 head.next 逻辑时，
+                     * CAS 可能会失败...
+                     * 案例：
+                     * t3 线程在if(h == head) 返回false时，t3 会继续自旋. 参与到 唤醒下一个head.next的逻辑..
+                     * t3 此时执行到 CAS WaitStatus(h,Node.SIGNAL, 0) 成功.. t4 在t3修改成功之前，也进入到 if (ws == Node.SIGNAL) 里面了，
+                     * 但是t4 修改 CAS WaitStatus(h,Node.SIGNAL, 0) 会失败，因为 t3 改过了...
+                     */
                     if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0)) {
                         continue;            // loop to recheck cases
                     }
                     //唤醒后继节点
                     unparkSuccessor(h);
-                } else if (ws == 0 &&
-                        !compareAndSetWaitStatus(h, 0, Node.PROPAGATE)) {
+                } else if (ws == 0 && !compareAndSetWaitStatus(h, 0, Node.PROPAGATE)) {
                     continue;                // loop on failed CAS
                 }
             }
 
-            //条件成立：
-            //1.说明刚刚唤醒的 后继节点，还没执行到 setHeadAndPropagate方法里面的 设置当前唤醒节点为head的逻辑。
-            //这个时候，当前线程 直接跳出去...结束了..
-            //此时用不用担心，唤醒逻辑 在这里断掉呢？、
-            //不需要担心，因为被唤醒的线程 早晚会执行到doReleaseShared方法。
-
-            //2.h == null  latch创建出来后，没有任何线程调用过 await() 方法之前，
-            //有线程调用latch.countDown()操作 且触发了 唤醒阻塞节点的逻辑..
-            //3.h == tail  -> head 和 tail 指向的是同一个node对象
-
-            //条件不成立：
-            //被唤醒的节点 非常积极，直接将自己设置为了新的head，此时 唤醒它的节点（前驱），执行h == head 条件会不成立..
-            //此时 head节点的前驱，不会跳出 doReleaseShared 方法，会继续唤醒 新head 节点的后继...
-            if (h == head)                   // loop if head changed
-            {
+            /**
+             * 条件成立：
+             * 1.说明刚刚唤醒的 后继节点，还没执行到 setHeadAndPropagate方法里面的 设置当前唤醒节点为head的逻辑。
+             * 这个时候，当前线程 直接跳出去...结束了..
+             * 此时用不用担心，唤醒逻辑 在这里断掉呢？、
+             * 不需要担心，因为被唤醒的线程 早晚会执行到doReleaseShared方法。
+             * 2.h == null  latch创建出来后，没有任何线程调用过 await() 方法之前，
+             * 有线程调用latch.countDown()操作 且触发了 唤醒阻塞节点的逻辑..
+             * 3.h == tail  -> head 和 tail 指向的是同一个node对象
+             * 条件不成立：
+             * 被唤醒的节点 非常积极，直接将自己设置为了新的head，此时 唤醒它的节点（前驱），执行h == head 条件会不成立..
+             * 此时 head节点的前驱，不会跳出 doReleaseShared 方法，会继续唤醒 新head 节点的后继...
+             */
+            if (h == head) {
+                // loop if head changed
                 break;
             }
         }
