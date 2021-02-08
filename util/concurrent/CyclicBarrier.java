@@ -97,7 +97,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * <i>happen-before</i> actions following a successful return from the
  * corresponding {@code await()} in other threads.
  *
- * -- 循环屏障
+ * -- 循环屏障，它没有什么新东西，使用了Condition条件队列
  *
  * @author Doug Lea
  * @see CountDownLatch
@@ -134,7 +134,7 @@ public class CyclicBarrier {
     /**
      * Condition to wait on until tripped
      */
-    //线程挂起实现使用的 condition 队列。条件：当前代所有线程到位，这个条件队列内的线程 才会被唤醒。
+    //线程挂起实现使用的 condition 队列。条件：当前代所有线程到位，这个条件队列内的所有线程 才会被唤醒。
     private final Condition trip = lock.newCondition();
 
     /**
@@ -165,7 +165,9 @@ public class CyclicBarrier {
     /**
      * Updates state on barrier trip and wakes up everyone.
      * Called only while holding lock.
-     * 开启下一代，当这一代 所有线程到位后（假设barrierCommand不为空，还需要最后一个线程执行完事件），会调用nextGeneration()开启新的一代。
+     *
+     * 开启下一代，当这一代 所有线程到位后（假设barrierCommand不为空，还需要最后一个线程执行完事件），
+     * 会调用nextGeneration()开启新的一代。
      *
      * 开启新的一代
      * 1.唤醒trip条件队列内挂起的线程，被唤醒的线程 会依次 获取到lock，然后依次退出await方法。
@@ -174,7 +176,7 @@ public class CyclicBarrier {
      */
     private void nextGeneration() {
         //将在trip条件队列内挂起的线程 全部唤醒
-        // signal completion of last generation
+        //signal completion of last generation
         trip.signalAll();
 
         //重置count为parties
