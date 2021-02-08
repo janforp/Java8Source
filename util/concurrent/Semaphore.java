@@ -222,17 +222,35 @@ public class Semaphore implements java.io.Serializable {
             super(permits);
         }
 
+        /**
+         * 尝试获取通行证，获取成功返回 >= 0的值;
+         * 获取失败 返回 < 0 值
+         */
         protected int tryAcquireShared(int acquires) {
             for (; ; ) {
+                //判断当前 AQS 阻塞队列内 是否有等待者线程
                 if (hasQueuedPredecessors()) {
+                    //如果有直接返回-1，表示当前aquire操作的线程需要进入到队列等待..
                     return -1;
                 }
+                //执行到这里，有哪几种情况？
+                //1.调用aquire时 AQS阻塞队列内没有其它等待者
+                //2.当前节点 在阻塞队列内是head.next节点
+
+                //获取state ，state这里表示 通行证
                 int available = getState();
+                //remaining 表示当前线程 获取通行证完成之后，semaphore还剩余数量
                 int remaining = available - acquires;
+
+                //条件一：remaining < 0 成立，说明线程获取通行证失败..
                 if (remaining < 0 ||
+
+                        //条件二：前置条件，remaning >= 0(意思就是有当前能够拿到这些通行证)
+                        //CAS更新state 成功，说明线程获取通行证成功，CAS失败，则自旋。
                         compareAndSetState(available, remaining)) {
                     return remaining;
                 }
+                //CAS失败，则自旋。
             }
         }
     }
