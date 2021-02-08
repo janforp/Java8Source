@@ -760,6 +760,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      * 都有哪几种路径会调用到doReleaseShared方法呢？
      * 1.latch.countDown() -> AQS.state == 0 -> doReleaseShared() 唤醒当前阻塞队列内的 head.next 对应的线程。
      * 2.被唤醒的线程 -> doAcquireSharedInterruptibly parkAndCheckInterrupt() 唤醒 -> setHeadAndPropagate() -> doReleaseShared()
+     *
+     * Semaphore也会调用该方法哦
      */
     private void doReleaseShared() {
         for (; ; ) {
@@ -1706,7 +1708,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      */
     public final boolean releaseShared(int arg) {
         if (tryReleaseShared(arg)) {
-            //条件成立：说明当前调用latch.countDown() 方法线程 正好是 state - 1 == 0 的这个线程，需要做触发唤醒 await状态的线程。
+            //CountDownLatch 的情况条件成立：说明当前调用latch.countDown() 方法线程 正好是 state - 1 == 0 的这个线程，需要做触发唤醒 await状态的线程。
+            //Semaphore 的情况条件成立：表示释放只有成功，去唤醒获取资源失败的线程
 
             /**
              * 调用countDown的线程很多
@@ -1715,6 +1718,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
              * 调用countDown() 方法的线程 只有一个线程会进入到这个 if块 里面，
              * 去调用 doReleaseShared() 唤醒 阻塞状态的线程的逻辑。
              */
+            //唤醒获取资源失败的线程
             doReleaseShared();
             return true;
         }
