@@ -756,32 +756,67 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      * propagation. (Note: For exclusive mode, release just amounts
      * to calling unparkSuccessor of head if it needs signal.)
      */
+    /**
+     * 都有哪几种路径会调用到doReleaseShared方法呢？
+     * 1.latch.countDown() -> AQS.state == 0 -> doReleaseShared() 唤醒当前阻塞队列内的 head.next 对应的线程。
+     * 2.被唤醒的线程 -> doAcquireSharedInterruptibly parkAndCheckInterrupt() 唤醒 -> setHeadAndPropagate() -> doReleaseShared()
+     */
+    //AQS.doReleaseShared
     private void doReleaseShared() {
-        /*
-         * Ensure that a release propagates, even if there are other
-         * in-progress acquires/releases.  This proceeds in the usual
-         * way of trying to unparkSuccessor of head if it needs
-         * signal. But if it does not, status is set to PROPAGATE to
-         * ensure that upon release, propagation continues.
-         * Additionally, we must loop in case a new node is added
-         * while we are doing this. Also, unlike other uses of
-         * unparkSuccessor, we need to know if CAS to reset status
-         * fails, if so rechecking.
-         */
         for (; ; ) {
+            //获取当前AQS 内的 头结点
             Node h = head;
+            //条件一：h != null 成立，说明阻塞队列不为空..
+            //不成立：h == null 什么时候会是这样呢？
+            //latch创建出来后，没有任何线程调用过 await() 方法之前，有线程调用latch.countDown()操作 且触发了 唤醒阻塞节点的逻辑..
+
+            //条件二：h != tail 成立，说明当前阻塞队列内，除了head节点以外  还有其他节点。
+            //h == tail  -> head 和 tail 指向的是同一个node对象。 什么时候会有这种情况呢？
+            //1. 正常唤醒情况下，依次获取到 共享锁，当前线程执行到这里时 （这个线程就是 tail 节点。）
+            //2. 第一个调用await()方法的线程 与 调用countDown()且触发唤醒阻塞节点的线程 出现并发了..
+            //   因为await()线程是第一个调用 latch.await()的线程，此时队列内什么也没有，它需要补充创建一个Head节点，然后再次自旋时入队
+            //   在await()线程入队完成之前，假设当前队列内 只有 刚刚补充创建的空元素 head 。
+            //   同期，外部有一个调用countDown()的线程，将state 值从1，修改为0了，那么这个线程需要做 唤醒 阻塞队列内元素的逻辑..
+            //   注意：调用await()的线程 因为完全入队完成之后，再次回到上层方法 doAcquireSharedInterruptibly 会进入到自旋中，
+            //   获取当前元素的前驱，判断自己是head.next， 所以接下来该线程又会将自己设置为 head，然后该线程就从await()方法返回了...
             if (h != null && h != tail) {
+                //执行到if里面，说明当前head 一定有 后继节点!
+
                 int ws = h.waitStatus;
+                //当前head状态 为 signal 说明 后继节点并没有被唤醒过呢...
                 if (ws == Node.SIGNAL) {
+                    //唤醒后继节点前 将head节点的状态改为 0
+                    //这里为什么，使用CAS呢？ 回头说...
+                    //当doReleaseShared方法 存在多个线程 唤醒 head.next 逻辑时，
+                    //CAS 可能会失败...
+                    //案例：
+                    //t3 线程在if(h == head) 返回false时，t3 会继续自旋. 参与到 唤醒下一个head.next的逻辑..
+                    //t3 此时执行到 CAS WaitStatus(h,Node.SIGNAL, 0) 成功.. t4 在t3修改成功之前，也进入到 if (ws == Node.SIGNAL) 里面了，
+                    //但是t4 修改 CAS WaitStatus(h,Node.SIGNAL, 0) 会失败，因为 t3 改过了...
                     if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0)) {
                         continue;            // loop to recheck cases
                     }
+                    //唤醒后继节点
                     unparkSuccessor(h);
                 } else if (ws == 0 &&
                         !compareAndSetWaitStatus(h, 0, Node.PROPAGATE)) {
                     continue;                // loop on failed CAS
                 }
             }
+
+            //条件成立：
+            //1.说明刚刚唤醒的 后继节点，还没执行到 setHeadAndPropagate方法里面的 设置当前唤醒节点为head的逻辑。
+            //这个时候，当前线程 直接跳出去...结束了..
+            //此时用不用担心，唤醒逻辑 在这里断掉呢？、
+            //不需要担心，因为被唤醒的线程 早晚会执行到doReleaseShared方法。
+
+            //2.h == null  latch创建出来后，没有任何线程调用过 await() 方法之前，
+            //有线程调用latch.countDown()操作 且触发了 唤醒阻塞节点的逻辑..
+            //3.h == tail  -> head 和 tail 指向的是同一个node对象
+
+            //条件不成立：
+            //被唤醒的节点 非常积极，直接将自己设置为了新的head，此时 唤醒它的节点（前驱），执行h == head 条件会不成立..
+            //此时 head节点的前驱，不会跳出 doReleaseShared 方法，会继续唤醒 新head 节点的后继...
             if (h == head)                   // loop if head changed
             {
                 break;
@@ -796,30 +831,26 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      *
      * @param node the node
      * @param propagate the return value from a tryAcquireShared
+     *
+     * 设置当前节点为 head节点，并且向后传播！（依次唤醒！）
      */
     private void setHeadAndPropagate(Node node, int propagate) {
         Node h = head; // Record old head for check below
+        //将当前节点设置为 新的 head节点。
         setHead(node);
-        /*
-         * Try to signal next queued node if:
-         *   Propagation was indicated by caller,
-         *     or was recorded (as h.waitStatus either before
-         *     or after setHead) by a previous operation
-         *     (note: this uses sign-check of waitStatus because
-         *      PROPAGATE status may transition to SIGNAL.)
-         * and
-         *   The next node is waiting in shared mode,
-         *     or we don't know, because it appears null
-         *
-         * The conservatism in both of these checks may cause
-         * unnecessary wake-ups, but only when there are multiple
-         * racing acquires/releases, so most need signals now or soon
-         * anyway.
-         */
-        if (propagate > 0 || h == null || h.waitStatus < 0 ||
-                (h = head) == null || h.waitStatus < 0) {
+        //调用setHeadAndPropagete 时  propagate  == 1 一定成立
+        if (propagate > 0
+                || h == null
+                || h.waitStatus < 0
+                || (h = head) == null
+                || h.waitStatus < 0) {
+
+            //获取当前节点的后继节点..
             Node s = node.next;
+            //条件一：s == null  什么时候成立呢？  当前node节点已经是 tail了，条件一会成立。 doReleaseShared() 里面会处理这种情况..
+            //条件二：前置条件，s != null ， 要求s节点的模式必须是 共享模式。 latch.await() -> addWaiter(Node.SHARED)
             if (s == null || s.isShared()) {
+                //基本上所有情况都会执行到 doReleasseShared() 方法。
                 doReleaseShared();
             }
         }
@@ -1221,7 +1252,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
                 final Node p = node.predecessor();
                 if (p == head) {
                     int r = tryAcquireShared(arg);
-                    if (r >= 0) {
+                    if (r >= 0) {//说明共享锁释放了
                         setHeadAndPropagate(node, r);
                         p.next = null; // help GC
                         failed = false;
@@ -1584,9 +1615,18 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      * @throws InterruptedException if the current thread is interrupted
      */
     public final void acquireSharedInterruptibly(int arg) throws InterruptedException {
+        //条件成立：说明当前调用await方法的线程 已经是 中断状态了,直接抛出异常..
         if (Thread.interrupted()) {
             throw new InterruptedException();
         }
+
+        /**
+         * 在CountDownLatch中：
+         * return (getState() == 0) ? 1 : -1;
+         * tryAcquireShared(arg) < 0：说明当前AQS.state > 0 ，此时将线程入队，然后等待唤醒..
+         * tryAcquireShared(arg) > 0：AQS.state == 0，此时就不会阻塞线程了..
+         * 对应业务层面 执行任务的线程已经将latch打破了。然后其他再调用latch.await的线程，就不会在这里阻塞了
+         */
         if (tryAcquireShared(arg) < 0) {
             doAcquireSharedInterruptibly(arg);
         }
@@ -1627,7 +1667,9 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      * @return the value returned from {@link #tryReleaseShared}
      */
     public final boolean releaseShared(int arg) {
+        //条件成立：说明当前调用latch.countDown() 方法线程 正好是 state - 1 == 0 的这个线程，需要做触发唤醒 await状态的线程。
         if (tryReleaseShared(arg)) {
+            //调用countDown() 方法的线程 只有一个线程会进入到这个 if块 里面，去调用 doReleaseShared() 唤醒 阻塞状态的线程的逻辑。
             doReleaseShared();
             return true;
         }
