@@ -847,18 +847,21 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         Node h = head; // Record old head for check below
         //将当前节点设置为 新的 head节点。
         setHead(node);
-        //调用setHeadAndPropagete 时  propagate  == 1 一定成立
-        if (propagate > 0
-                || h == null
+
+        if (propagate > 0 //调用setHeadAndPropagete 时  propagate  == 1 一定成立
+                || h == null //后面的就不看了
                 || h.waitStatus < 0
                 || (h = head) == null
                 || h.waitStatus < 0) {
 
-            //获取当前节点的后继节点..
+            //获取当前节点的后继节点(successor)
             Node s = node.next;
+
             //条件一：s == null  什么时候成立呢？  当前node节点已经是 tail了，条件一会成立。 doReleaseShared() 里面会处理这种情况..
-            //条件二：前置条件，s != null ， 要求s节点的模式必须是 共享模式。 latch.await() -> addWaiter(Node.SHARED)
-            if (s == null || s.isShared()) {
+            if (s == null
+                    //条件二：前置条件，s != null ， 要求s节点的模式必须是 共享模式。 latch.await() -> addWaiter(Node.SHARED)
+                    || s.isShared()) {
+
                 //基本上所有情况都会执行到 doReleasseShared() 方法。
                 doReleaseShared();
             }
