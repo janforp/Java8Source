@@ -1924,7 +1924,8 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
      */
     final boolean isOnSyncQueue(Node node) {
 
-        //条件一：node.waitStatus == Node.CONDITION 条件成立，说明当前node一定是在条件队列，因为signal方法迁移节点到 阻塞队列前，会将node的状态设置为 0
+        //条件一：node.waitStatus == Node.CONDITION 条件成立，说明当前node一定是在条件队列，
+        //因为signal方法迁移节点到 阻塞队列前，会将node的状态设置为 0
         if (node.waitStatus == Node.CONDITION
 
                 //条件二：前置条件：node.waitStatus != Node.CONDITION   ===> 节点不在条件队列了
@@ -1998,12 +1999,13 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
     }
 
     /**
+     * 调用signal的是会调用当前方法
      * Transfers a node from a condition queue onto sync queue.
      * -- 将节点从条件队列转移到同步队列。
      *
      * Returns true if successful.
      *
-     * @param node the node
+     * @param node the node 计划迁移的节点
      * @return true if successfully transferred (else the node was cancelled before signal)
      * - 如果成功传输，则返回true（否则，节点在信号之前被取消的情况就是失败）
      */
@@ -2015,7 +2017,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
         if (!compareAndSetWaitStatus(node, Node.CONDITION, 0)) {
             /**
              * cas修改当前节点的状态，修改为0，因为当前节点马上要迁移到 阻塞队列了，所以得出一个结论：：：：迁移过去的节点状态都是0！
-             *      成功：当前节点在条件队列中状态正常。
+             *      成功：当前节点在条件队列中状态正常(为Node.CONDITION)。
              *      失败：
              *      1.取消状态 （线程await时 未持有锁，最终线程对应的node会设置为 取消状态），
              * @see AbstractQueuedSynchronizer#fullyRelease 在添加添加队列节点的时候，在该方法的finally代码块中失败的时候会修改状态为去取消
@@ -2023,7 +2025,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
              *
              * 总结：
              * signal的时候迁移节点，会把节点的状态设置为0
-             * cas相关状态失败了，就会进来，说明在迁移之前节点的状态已经不是CONDITION了，极有可能是取消状态
+             * cas修改状态失败了，就会进来，说明在迁移之前节点的状态已经不是CONDITION了，极有可能是取消状态
              *
              * 进入该处的节点无非2个情况
              * 1.进入的时候就不是持锁线程，状态直接为取消，当前状态是1了
@@ -2348,11 +2350,12 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
 
                 //当前first节点 出 条件队列。断开和下一个节点的关系.
                 first.nextWaiter = null;
+
+                //其实就是类似从头节点开始遍历，只是这里是出队，所以每次遍历都要断开连接
             } while (
-                //transferForSignal(first)
-                //boolean：true 当前first节点迁移到阻塞队列成功  false 迁移失败...
+                //意思就是迁移失败就继续迁移下一个
                     !transferForSignal(first)
-                            //while循环 ：(first = firstWaiter) != null  当前first迁移失败，则将first更新为 first.next 继续尝试迁移..
+                            //上一个迁移失败了，就迁移下一个，前提是还有下一个
                             && (first = firstWaiter) != null);
         }
 
@@ -2616,7 +2619,7 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
              *      1.大概率不在阻塞队列，所以进入while循环之后就会挂起当前线程
              *      2.然后等待其他线程在这个condition上(可以理解成同一个条件满足了)调用signal或者signalAll为止！
              */
-            while (!isOnSyncQueue(node)) {
+            while (!isOnSyncQueue(node)) {//不是在syncQueue就是在conditionQueue呗
 
                 //进入while代码块说明：当前node还没有进入AQS阻塞队列，还在condition条件队列中！
 
