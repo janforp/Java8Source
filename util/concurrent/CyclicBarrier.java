@@ -97,6 +97,8 @@ import java.util.concurrent.locks.ReentrantLock;
  * <i>happen-before</i> actions following a successful return from the
  * corresponding {@code await()} in other threads.
  *
+ * -- 循环屏障
+ *
  * @author Doug Lea
  * @see CountDownLatch
  * @since 1.5
@@ -198,9 +200,7 @@ public class CyclicBarrier {
      * timed：表示当前调用await方法的线程是否指定了 超时时长，如果true 表示 线程是响应超时的
      * nanos：线程等待超时时长 纳秒，如果timed == false ,nanos == 0
      */
-    private int dowait(boolean timed, long nanos)
-            throws InterruptedException, BrokenBarrierException,
-            TimeoutException {
+    private int dowait(boolean timed, long nanos) throws InterruptedException, BrokenBarrierException, TimeoutException {
         //获取barrier全局锁对象
         final ReentrantLock lock = this.lock;
         //加锁
