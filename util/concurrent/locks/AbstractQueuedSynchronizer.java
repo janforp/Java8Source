@@ -791,19 +791,22 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
                 //执行到if里面，说明当前head 一定有 后继节点!
 
                 int ws = h.waitStatus;
-                //当前head状态 为 signal 说明 后继节点并没有被唤醒过呢...
+                //当前head状态 为 SIGNAL 说明 后继节点并没有被唤醒过呢
+                //因为后继节点会修改前驱节点的状态为 SIGNAL
                 if (ws == Node.SIGNAL) {
                     /**
-                     * 唤醒后继节点前 将head节点的状态改为 0
+                     * 唤醒后继节点前 将head节点的状态改为 0，因为 SIGNAL 就是说明后继节点还没有唤醒的标记
                      * 这里为什么，使用CAS呢？ 回头说...
-                     * 当doReleaseShared方法 存在多个线程 唤醒 head.next 逻辑时，
-                     * CAS 可能会失败...
-                     * 案例：
-                     * t3 线程在if(h == head) 返回false时，t3 会继续自旋. 参与到 唤醒下一个head.next的逻辑..
-                     * t3 此时执行到 CAS WaitStatus(h,Node.SIGNAL, 0) 成功.. t4 在t3修改成功之前，也进入到 if (ws == Node.SIGNAL) 里面了，
-                     * 但是t4 修改 CAS WaitStatus(h,Node.SIGNAL, 0) 会失败，因为 t3 改过了...
+                     * 当doReleaseShared方法 存在多个线程 唤醒 head.next 逻辑时，（唤醒后继节点之后，后继节点极有可能修改当前的head为它自己，这是一个竞争的情况）
                      */
                     if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0)) {
+                        /**
+                         * CAS 可能会失败...存在并发,唤醒就等于参与竞争
+                         * 案例：
+                         * t3 线程在if(h == head) 返回false时，t3 会继续自旋. 参与到 唤醒下一个head.next的逻辑..
+                         * t3 此时执行到 CAS WaitStatus(h,Node.SIGNAL, 0) 成功.. t4 在t3修改成功之前，也进入到 if (ws == Node.SIGNAL) 里面了，
+                         * 但是t4 修改 CAS WaitStatus(h,Node.SIGNAL, 0) 会失败，因为 t3 改过了...
+                         */
                         continue;            // loop to recheck cases
                     }
                     //唤醒后继节点
@@ -814,20 +817,24 @@ public abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchron
             }
 
             /**
-             * 条件成立：
+             * 条件成立（h == head）：
              * 1.说明刚刚唤醒的 后继节点，还没执行到 setHeadAndPropagate方法里面的 设置当前唤醒节点为head的逻辑。
              * 这个时候，当前线程 直接跳出去...结束了..
              * 此时用不用担心，唤醒逻辑 在这里断掉呢？、
              * 不需要担心，因为被唤醒的线程 早晚会执行到doReleaseShared方法。
+             *
              * 2.h == null  latch创建出来后，没有任何线程调用过 await() 方法之前，
              * 有线程调用latch.countDown()操作 且触发了 唤醒阻塞节点的逻辑..
+             *
              * 3.h == tail  -> head 和 tail 指向的是同一个node对象
+             *
+             *
              * 条件不成立：
              * 被唤醒的节点 非常积极，直接将自己设置为了新的head，此时 唤醒它的节点（前驱），执行h == head 条件会不成立..
              * 此时 head节点的前驱，不会跳出 doReleaseShared 方法，会继续唤醒 新head 节点的后继...
              */
             if (h == head) {
-                // loop if head changed
+                // loop if head changed -- 如果换头就循环
                 break;
             }
         }
