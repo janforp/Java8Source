@@ -203,9 +203,13 @@ public class CyclicBarrier {
     }
 
     /**
-     * Main barrier code, covering the various policies.
+     * 这是一个很重的方法
+     * Main barrier code, covering the various policies.-- 主要障碍代码，涵盖了各种政策。
+     *
      * timed：表示当前调用await方法的线程是否指定了 超时时长，如果true 表示 线程是响应超时的
      * nanos：线程等待超时时长 纳秒，如果timed == false ,nanos == 0
+     *
+     * @return 返回 index：
      */
     private int dowait(boolean timed, long nanos) throws InterruptedException, BrokenBarrierException, TimeoutException {
         //获取barrier全局锁对象
@@ -238,31 +242,34 @@ public class CyclicBarrier {
              *
              * 大部分情况会执行到这里的
              */
-
-            //假设 parties 给的是 5，那么index对应的值为 4,3,2,1,0
+            //假设 parties 初始是 5，那么index对应的值为 4,3,2,1,0
             //也就是每次正常的调用该方法，count都会-1，说明一个线程满足了条件
             int index = --count;
             if (index == 0) {  // tripped -- 绊倒了
                 //条件成立：说明当前线程是最后一个到达barrier的线程，此时需要做什么呢？
-
                 /**
-                 * 标记：true表示 最后一个线程 执行 command 时未抛异常。  false，表示最后一个线程执行 command 时抛出异常了.
+                 * ranAction=true表示 最后一个线程 执行 command 时未抛异常。
+                 * ranAction=false，表示最后一个线程执行 command 时抛出异常了.
                  * command 就是创建 barrier对象时 指定的第二个 Runnable接口实现，这个可以为null
                  */
                 boolean ranAction = false;
                 try {
                     final Runnable command = barrierCommand;
-                    //条件成立：说明创建barrier对象时 指定 Runnable接口了，这个时候最后一个到达的线程 就需要执行这个接口
                     if (command != null) {
-                        command.run();
+                        //条件成立：说明创建barrier对象时 指定 Runnable接口了，
+                        //这个时候最后一个到达的线程 就需要执行这个接口
+                        command.run();//这个方法可能抛出异常
+                        //如果抛出了异常，则不会往下执行了，只会执行finally代码块!!!
                     }
                     //command.run()未抛出异常的话，那么线程会执行到这里。
                     ranAction = true;
 
-                    //开启新的一代
-                    //1.唤醒trip条件队列内挂起的线程，被唤醒的线程 会依次 获取到lock，然后依次退出await方法。
-                    //2.重置count 为 parties
-                    //3.创建一个新的generation对象，表示新的一代
+                    /**
+                     * 开启新的一代
+                     * 1.唤醒trip条件队列内挂起的线程，被唤醒的线程 会依次 获取到lock，然后依次退出await方法。
+                     * 2.重置count 为 parties
+                     * 3.创建一个新的generation对象，表示新的一代
+                     */
                     nextGeneration();
                     //返回0，因为当前线程是此 代 最后一个到达的线程，所以Index == 0
                     return 0;
