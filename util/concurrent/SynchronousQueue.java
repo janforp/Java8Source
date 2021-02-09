@@ -973,6 +973,13 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
         }
 
         /**
+         *  这是一个非常典型的 queue , 它有如下的特点
+         *  1. 整个队列有 head, tail 两个节点
+         *  2. 队列初始化时会有个 dummy 节点
+         *  3. 这个队列的头节点是个 dummy 节点/ 或 哨兵节点, 所以操作的总是队列中的第二个节点(AQS的设计中也是这也)
+         */
+
+        /**
          * Head of queue
          */
         //指向队列的dummy节点
@@ -992,10 +999,23 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
          * 第一步：t.next = newNode
          * 第二步：tail = newNode
          * 所以，队尾节点出队，是一种非常特殊的情况，需要特殊处理，回头讲！
+         *
+         *
+         * 对应 中断或超时的 前继节点,这个节点存在的意义是标记, 它的下个节点要删除
+         * 何时使用:
+         * 当你要删除 节点 node, 若节点 node 是队列的末尾, 则开始用这个节点,
+         * 为什么呢？
+         * 大家知道 删除一个节点 直接 A.CASNext(B, B.next) 就可以,但是当  节点 B 是整个队列中的末尾元素时,
+         * 一个线程删除节点B, 一个线程在节点B之后插入节点 这样操作容易致使插入的节点丢失, 这个cleanMe很像
+         * ConcurrentSkipListMap 中的 删除添加的 marker 节点, 他们都是起着相同的作用
          */
         transient volatile QNode cleanMe;
 
         TransferQueue() {
+            /**
+             * 构造一个 dummy node, 而整个 queue 中永远会存在这样一个 dummy node
+             * dummy node 的存在使得 代码中不存在复杂的 if 条件判断
+             */
             QNode h = new QNode(null, false); // initialize to dummy node.-- 初始化为虚拟节点
             head = h;
             tail = h;
@@ -1008,8 +1028,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
          */
         void advanceHead(QNode h, QNode nh) {
             if (h == head && UNSAFE.compareAndSwapObject(this, headOffset, h, nh)) {
-
                 //this.next = this 就表示出队了
+                //推进 head 节点,将 老节点的 oldNode.next = this, help gc
                 h.next = h; // forget old next
             }
         }
@@ -1073,49 +1093,71 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
             for (; ; ) {
                 QNode t = tail;
                 QNode h = head;
-                if (t == null || h == null)         // saw uninitialized value
-                {
+                if (t == null || h == null) {
+                    // saw uninitialized value
+                    //看到未初始化的值 说明还在初始化中,构造方法还没有执行完成
                     continue;                       // spin
                 }
 
                 //CASE1：入队
                 //条件一：成立，说明head和tail同时指向dummy节点，当前队列实际情况 就是 空队列。此时当前请求需要做入队操作，因为没有任何节点 可以去匹配。
-                //条件二：队列不是空，队尾节点与当前请求类型是一致的情况。说明也是无法完成匹配操作的情况，此时当前节点只能入队...
-                if (h == t || t.isData == isData) { // empty or same-mode
-                    //获取当前队尾t 的next节点 tn - t.next
+                if (h == t
+                        //条件二：队列不是空，队尾节点与当前请求类型是一致的情况。说明也是无法完成匹配操作的情况，此时当前节点只能入队...
+                        || t.isData == isData) {
+                    // empty or same-mode:队列还是空或者当前请求的节点类型跟尾节点的类型一样！
+
                     QNode tn = t.next;
-                    //因为多线程环境，当前线程在入队之前，其它线程有可能已经入队过了..改变了 tail 引用。
-                    if (t != tail)                    // inconsistent read
-                    //线程回到自旋...再选择路径执行。
-                    {
+                    /**
+                     * 获取当前队尾t 的next节点 tn - t.next
+                     * 如果当前线程执行到这里的时候，在此之前并没有其他线程修改t的next引用，则tail不会发生变化
+                     * 但是此方法是支持多线程访问的，所以要考虑tail已经发生了改变的情况
+                     *
+                     * 因为多线程环境，当前线程在入队之前，其它线程有可能已经入队过了..改变了 tail 引用。
+                     */
+                    if (t != tail) {
+                        // inconsistent read：读不一致
+                        //线程回到自旋...再选择路径执行。
                         continue;
                     }
 
-                    //条件成立：说明已经有线程 入队了，且只完成了 入队的 第一步：设置t.next = newNode， 第二步可能尚未完成..
+                    /**
+                     * 获取当前队尾t 的next节点 tn - t.next
+                     * 如果当前线程执行到这里的时候，在此之前并没有其他线程修改t的next引用，则tail不会发生变化
+                     * 但是此方法是支持多线程访问的，所以要考虑tail已经发生了改变的情况
+                     *
+                     * 因为多线程环境，当前线程在入队之前，其它线程有可能已经入队过了，已经设置了t.next的值，但是还没来得及设置 tail = newNode
+                     *
+                     * 说明已经有线程 入队了，且只完成了 入队的 第一步：设置t.next = newNode， 第二步可能尚未完成..
+                     */
                     if (tn != null) {               // lagging tail
-                        //协助更新tail 指向新的　尾结点。
+                        //条件成立：说明已经有线程 入队了，且只完成了 入队的 第一步：设置t.next = newNode， 第二步可能尚未完成..
+
+                        /**
+                         * 协助更新tail 指向新的　尾结点。
+                         * 只是协助，不保证成功，原因还是因为存在并发
+                         */
                         advanceTail(t, tn);
                         //线程回到自旋...再选择路径执行。
                         continue;
                     }
 
-                    //条件成立：说明当前调用transfer方法的 上层方法 可能是 offer() 无参的这种方法进来的，这种方法不支持 阻塞等待...
-                    if (timed && nanos <= 0)        // can't wait
-                    //检查未匹配到,直接返回null。
-                    {
+                    if (timed && nanos <= 0) {
+                        //条件成立：说明当前调用transfer方法的 上层方法 可能是 offer() 无参的这种方法进来的，这种方法不支持 阻塞等待...
+
+                        // can't wait
+                        //检查未匹配到,直接返回null。
                         return null;
                     }
 
                     //条件成立：说明当前请求尚未 创建对应的node
-                    if (s == null)
-                    //创建node过程...
-                    {
+                    if (s == null) {
+                        //创建node过程...
                         s = new QNode(e, isData);
                     }
 
                     //条件 不成立：!t.casNext(null, s)  说明当前t仍然是tail，当前线程对应的Node入队的第一步 完成！
-                    if (!t.casNext(null, s))        // failed to link in
-                    {
+                    if (!t.casNext(null, s)) {
+                        // failed to link in
                         continue;
                     }
 
@@ -1132,8 +1174,9 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     //x != null 且 item != this  表示当前REQUEST类型的Node已经匹配到一个DATA类型的Node了。
                     Object x = awaitFulfill(s, e, timed, nanos);
 
-                    //说明当前Node状态为 取消状态，需要做 出队逻辑。
                     if (x == s) {                   // wait was cancelled
+                        //说明当前Node状态为 取消状态，需要做 出队逻辑。
+
                         //清理出队逻辑，最后讲。
                         clean(t, s);
                         return null;
