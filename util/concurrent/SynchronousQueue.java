@@ -885,6 +885,9 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
          * that for stacks because fulfillers do not need explicit
          * nodes, and matching is done by CAS'ing QNode.item field
          * from non-null to null (for put) or vice versa (for take).
+         *
+         * -- 这扩展了Scherer-Scott双队列算法，其不同之处在于，通过使用节点内的模式而不是标记的指针来实现。
+         * 该算法比堆栈的算法更简单，因为实现者不需要显式节点，并且匹配是通过CAS的QNode.item字段从非null到null（用于放置）或反之亦然（用于获取）来完成的。
          */
 
         /**
@@ -896,6 +899,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
             volatile QNode next;          // next node in queue
 
             //数据域  Node代表的是DATA类型，item表示数据   否则 Node代表的REQUEST类型，item == null
+
             volatile Object item;         // CAS'ed to or from null
 
             //当Node对应的线程 未匹配到节点时，对应的线程 最终会挂起，挂起之前会保留 线程引用到waiter ，
@@ -992,7 +996,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
         transient volatile QNode cleanMe;
 
         TransferQueue() {
-            QNode h = new QNode(null, false); // initialize to dummy node.
+            QNode h = new QNode(null, false); // initialize to dummy node.-- 初始化为虚拟节点
             head = h;
             tail = h;
         }
@@ -1003,8 +1007,9 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
          * 设置头指针指向新的节点，蕴含操作：老的头节点出队。
          */
         void advanceHead(QNode h, QNode nh) {
-            if (h == head &&
-                    UNSAFE.compareAndSwapObject(this, headOffset, h, nh)) {
+            if (h == head && UNSAFE.compareAndSwapObject(this, headOffset, h, nh)) {
+
+                //this.next = this 就表示出队了
                 h.next = h; // forget old next
             }
         }
@@ -1245,10 +1250,10 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
             //自旋：1.检查状态等待匹配  2.挂起线程  3.检查状态 是否被中断 或者 超时..
             for (; ; ) {
                 //条件成立：说明线程等待过程中，收到了中断信号，属于中断唤醒..
-                if (w.isInterrupted())
-                //更新线程对应的Node状态为 取消状态..
-                //数据域item 指向当前Node自身，表示取消状态.
-                {
+                if (w.isInterrupted()) {
+                    //更新线程对应的Node状态为 取消状态..
+                    //数据域item 指向当前Node自身，表示取消状态.
+
                     s.tryCancel(e);
                 }
 
@@ -1289,17 +1294,17 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                 }
 
                 //条件成立：说明当前线程 还可以进行自旋检查..
-                if (spins > 0)
-                //递减..
-                {
+                if (spins > 0) {
+                    //递减..
+
                     --spins;
                 }
 
                 //执行到这里，说明spins == 0;
                 //条件成立：当前Node尚未设置waiter字段..
-                else if (s.waiter == null)
-                //保存当前Node对应的线程，方便后面挂起线程后，外部线程使用s.waiter字段唤醒 当前Node对应的线程。
-                {
+                else if (s.waiter == null) {
+                    //保存当前Node对应的线程，方便后面挂起线程后，外部线程使用s.waiter字段唤醒 当前Node对应的线程。
+
                     s.waiter = w;
                 }
 
@@ -1310,9 +1315,9 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
                 //执行到这里，说明 timed==true
                 //条件 不成立：nanos 太小了，没有必要挂起线程了，还不如自旋 实在。
-                else if (nanos > spinForTimeoutThreshold)
-                //nanos > 1000.
-                {
+                else if (nanos > spinForTimeoutThreshold) {
+                    //nanos > 1000.
+
                     LockSupport.parkNanos(this, nanos);
                 }
             }
@@ -1320,6 +1325,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
         /**
          * Gets rid of cancelled node s with original predecessor pred.
+         * -- 去除具有原始前任pred的已取消节点s。
          */
         void clean(QNode pred, QNode s) {
             s.waiter = null; // forget thread
