@@ -649,7 +649,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
         /**
          * Spins/blocks until node s is matched by a fulfill operation.-- 旋转/阻塞，直到节点s通过执行操作匹配。
          *
-         * @param s the waiting node 当前请求Node
+         * @param s the waiting node 当前请求Node,执行等待的节点
          * @param timed true if timed wait 当前请求是否支持 超时限制
          * @param nanos timeout value 如果请求支持超时限制，nanos 表示超时等待时长。
          * @return matched node, or s if cancelled
@@ -720,6 +720,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     return m;
                 }
 
+                //下面是线程没有中断，并且没有匹配成功也没有取消的情况.s.match == null
+
                 if (timed) {
                     //条件成立：说明指定了超时限制..
 
@@ -734,10 +736,16 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     }
                 }
 
-                //条件成立：说明当前线程还可以进行自旋检查...
+                //到这里：没有设置超时，或者还没有超时
+
                 if (spins > 0) {
-                    //自旋次数 累积 递减。。。
-                    spins = shouldSpin(s) ? (spins - 1) : 0;
+                    //条件成立：说明当前线程还可以进行自旋检查...
+
+                    spins = shouldSpin(s) ? //TODO 为什么这里又判断一次呢？
+
+                            (spins - 1) ://自旋次数 累积 递减。。。
+
+                            0;
                 }
 
                 //spins == 0 ，已经不允许再进行自旋检查了
@@ -746,14 +754,16 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     s.waiter = w; // establish waiter so can park next iter
                 }
 
-                //条件成立：说明当前Node对应的请求  未指定超时限制。
                 else if (!timed) {
+                    //条件成立：说明当前Node对应的请求  未指定超时限制。
+
                     //使用不指定超时限制的park方法 挂起当前线程，直到 当前线程被外部线程 使用unpark唤醒。
                     LockSupport.park(this);
                 }
 
-                //什么时候执行到这里？ timed == true 设置了 超时限制..
                 else if (nanos > spinForTimeoutThreshold) {
+                    //什么时候执行到这里？ timed == true 设置了 超时限制..
+
                     //条件成立：nanos > 1000 纳秒的值，只有这种情况下，才允许挂起当前线程..否则 说明 超时给的太少了...挂起和唤醒的成本 远大于 空转自旋...
                     LockSupport.parkNanos(this, nanos);
                 }
