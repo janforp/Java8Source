@@ -475,10 +475,12 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
         E transfer(E e, boolean timed, long nanos) {
             /*
              * Basic algorithm is to loop trying one of three actions:
+             * -- 基本算法是循环尝试以下三个动作之一：
              *
              * 1. If apparently empty or already containing nodes of same
              *    mode, try to push node on stack and wait for a match,
              *    returning it, or null if cancelled.
+             * -- 如果显然是空的或已经包含相同模式的节点，请尝试将节点压入堆栈并等待匹配，然后将其返回；如果取消，则返回null。
              *
              * 2. If apparently containing node of complementary mode,
              *    try to push a fulfilling node on to stack, match
@@ -486,19 +488,22 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
              *    stack, and return matched item. The matching or
              *    unlinking might not actually be necessary because of
              *    other threads performing action 3:
+             * -- 如果显然包含互补模式的节点，请尝试将满足条件的节点推入堆栈，与相应的等待节点匹配，从堆栈中弹出两者，然后返回匹配项。由于其他线程正在执行操作3，因此实际上可能不需要匹配或取消链接：
              *
              * 3. If top of stack already holds another fulfilling node,
              *    help it out by doing its match and/or pop
              *    operations, and then continue. The code for helping
              *    is essentially the same as for fulfilling, except
              *    that it doesn't return the item.
+             * -- 如果堆栈顶部已经包含另一个充实的节点，请通过执行其匹配和/或弹出操作来对其进行帮助，然后继续。帮助代码与实现代码基本相同，不同之处在于它不返回项目。
              */
 
             //包装当前线程的Node
             SNode s = null; // constructed/reused as needed
-            //e == null 条件成立：当前线程是一个REQUEST线程。
-            //否则 e!=null 说明 当前线程是一个DATA线程，提交数据的线程。
-            int mode = (e == null) ? REQUEST : DATA;
+
+            int mode = (e == null) ?
+                    REQUEST : //e == null 条件成立：当前线程是一个REQUEST线程。
+                    DATA;//否则 e!=null 说明 当前线程是一个DATA线程，提交数据的线程。
 
             //自旋
             for (; ; ) {
@@ -506,17 +511,22 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                 SNode h = head;
 
                 //CASE1：当前栈内为空 或者 栈顶Node模式与当前请求模式一致，都是需要做入栈操作。
-                if (h == null || h.mode == mode) {  // empty or same-mode
+                if (h == null //当前栈内为空
+                        //栈顶Node模式与当前请求模式一致
+                        || h.mode == mode) {
+                    //empty or same-mode
 
-                    //条件一：成立，说明当前请求是指定了 超时限制的
-                    //条件二：nanos <= 0 , nanos == 0. 表示这个请求 不支持 “阻塞等待”。 queue.offer();
-                    if (timed && nanos <= 0) {      // can't wait
-                        //条件成立：说明栈顶已经取消状态了，协助栈顶出栈。
+                    if (timed//条件一：成立，说明当前请求是指定了 超时限制的
+
+                            //条件二：nanos <= 0 , nanos == 0. 表示这个请求 不支持 “阻塞等待”。 queue.offer();
+                            && nanos <= 0) {      // can't wait
+
                         if (h != null && h.isCancelled()) {
-                            casHead(h, h.next);     // pop cancelled node
-                        } else
-                        //大部分情况从这里返回。
-                        {
+                            //条件成立：说明栈顶已经取消状态了，协助栈顶出栈。
+                            // pop cancelled node
+                            casHead(h, h.next);
+                        } else {
+                            //大部分情况从这里返回。
                             return null;
                         }
 
@@ -535,8 +545,10 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                         //2.取消情况：返回当前节点  s节点进去，返回s节点...
                         SNode m = awaitFulfill(s, timed, nanos);
 
-                        //条件成立：说明当前Node状态是 取消状态...
-                        if (m == s) {               // wait was cancelled
+                        if (m == s) {
+                            // wait was cancelled
+                            //条件成立：说明当前Node状态是 取消状态...
+
                             //将取消状态的节点 出栈...
                             clean(s);
                             //取消状态 最终返回null
@@ -544,33 +556,39 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                         }
                         //执行到这里 说明当前Node已经被匹配了...
 
-                        //条件一：成立，说明栈顶是有Node
-                        //条件二：成立，说明 Fulfill 和 当前Node 还未出栈，需要协助出栈。
-                        if ((h = head) != null && h.next == s)
-                        //将fulfill 和 当前Node 结对 出栈
-                        {
+                        if ((h = head) != null//条件一：成立，说明栈顶是有Node
+
+                                //条件二：成立，说明 Fulfill 和 当前Node 还未出栈，需要协助出栈。
+                                && h.next == s) {
+
+                            //将fulfill 和 当前Node 结对 出栈
                             casHead(h, s.next);     // help s's fulfiller
                         }
 
-                        //当前NODE模式为REQUEST类型：返回匹配节点的m.item 数据域
-                        //当前NODE模式为DATA类型：返回Node.item 数据域，当前请求提交的 数据e
-                        return (E) ((mode == REQUEST) ? m.item : s.item);
+                        return (E) ((mode == REQUEST) ?
+                                m.item ://当前NODE模式为REQUEST类型：返回匹配节点的m.item 数据域
+                                s.item);//当前NODE模式为DATA类型：返回Node.item 数据域，当前请求提交的 数据e
                     }
                 }
-                //什么时候来到这？？
-                //栈顶Node的模式与当前请求的模式不一致，会执行else if 的条件。
-                //栈顶是 (DATA  Reqeust)    (Request   DATA)   (FULFILLING  REQUEST/DATA)
-                //CASE2：当前栈顶模式与请求模式不一致，且栈顶不是FULFILLING
-                else if (!isFulfilling(h.mode)) { // try to fulfill
-                    //条件成立：说明当前栈顶状态为 取消状态，当前线程协助它出栈。
-                    if (h.isCancelled())            // already cancelled
-                    //协助 取消状态节点 出栈。
-                    {
-                        casHead(h, h.next);         // pop and retry
-                    }
 
-                    //条件成立：说明压栈节点成功，入栈一个 FULFILLING | mode  NODE
-                    else if (casHead(h, s = snode(s, e, h, FULFILLING | mode))) {
+                /**
+                 * 什么时候来到这？？
+                 * 栈顶Node的模式与当前请求的模式不一致，会执行else if 的条件。
+                 * 栈顶是 (DATA  Reqeust)    (Request   DATA)   (FULFILLING  REQUEST/DATA)
+                 * CASE2：当前栈顶模式与请求模式不一致，且栈顶不是FULFILLING
+                 */
+                else if (!isFulfilling(h.mode)) { // try to fulfill
+
+                    if (h.isCancelled()) {
+                        //条件成立：说明当前栈顶状态为 取消状态，当前线程协助它出栈。
+
+                        // already cancelled
+                        //协助 取消状态节点 出栈。
+                        // pop and retry
+                        casHead(h, h.next);
+                    } else if (casHead(h, s = snode(s, e, h, FULFILLING | mode))) {
+                        //条件成立：说明压栈节点成功，入栈一个 FULFILLING | mode  NODE
+
                         //当前请求入栈成功
 
                         //自旋，fulfill 节点 和 fulfill.next 节点进行匹配工作...
@@ -599,12 +617,12 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                                 //结对出栈
                                 casHead(s, mn);     // pop both s and m
 
-                                //当前NODE模式为REQUEST类型：返回匹配节点的m.item 数据域
-                                //当前NODE模式为DATA类型：返回Node.item 数据域，当前请求提交的 数据e
-                                return (E) ((mode == REQUEST) ? m.item : s.item);
-                            } else                  // lost match
-                            //强制出栈
-                            {
+                                return (E) ((mode == REQUEST) ?
+                                        m.item : //当前NODE模式为REQUEST类型：返回匹配节点的m.item 数据域
+                                        s.item);//当前NODE模式为DATA类型：返回Node.item 数据域，当前请求提交的 数据e
+                            } else {
+                                // lost match
+                                //强制出栈
                                 s.casNext(m, mn);   // help unlink
                             }
                         }
@@ -612,18 +630,20 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     }
                 }
 
-                //CASE3：什么时候会执行？
-                //栈顶模式为 FULFILLING模式，表示栈顶和栈顶下面的栈帧正在发生匹配...
-                //当前请求需要做 协助 工作。
+                /**
+                 * CASE3：什么时候会执行？
+                 * 栈顶模式为 FULFILLING模式，表示栈顶和栈顶下面的栈帧正在发生匹配...
+                 * 当前请求需要做 协助 工作。
+                 */
                 else {                            // help a fulfiller
                     //h 表示的是 fulfilling节点,m fulfilling匹配的节点。
                     SNode m = h.next;               // m is h's match
                     //m == null 什么时候可能成立呢？
                     //当s.next节点 超时或者被外部线程中断唤醒后，会执行 clean 操作 将 自己清理出栈，此时
                     //站在匹配者线程 来看，真有可能拿到一个null。
-                    if (m == null)                  // waiter is gone
-                    //清空栈
-                    {
+                    if (m == null) {
+                        // waiter is gone
+                        //清空栈
                         casHead(h, null);           // pop fulfilling node
                     }
 
@@ -632,13 +652,13 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                         //获取栈顶匹配节点的 下一个节点
                         SNode mn = m.next;
                         //条件成立：说明 m 和 栈顶 匹配成功
-                        if (m.tryMatch(h))          // help match
-                        //双双出栈，让栈顶指针指向 匹配节点的下一个节点。
-                        {
+                        if (m.tryMatch(h)) {
+                            // help match
+                            //双双出栈，让栈顶指针指向 匹配节点的下一个节点。
                             casHead(h, mn);         // pop both h and m
-                        } else                        // lost match
-                        //强制出栈
-                        {
+                        } else {
+                            // lost match
+                            //强制出栈
                             h.casNext(m, mn);       // help unlink
                         }
                     }
