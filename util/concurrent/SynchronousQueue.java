@@ -1,39 +1,3 @@
-/*
- * ORACLE PROPRIETARY/CONFIDENTIAL. Use is subject to license terms.
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- */
-
-/*
- *
- *
- *
- *
- *
- * Written by Doug Lea, Bill Scherer, and Michael Scott with
- * assistance from members of JCP JSR-166 Expert Group and released to
- * the public domain, as explained at
- * http://creativecommons.org/publicdomain/zero/1.0/
- */
-
 package util.concurrent;
 
 import java.util.AbstractQueue;
@@ -50,30 +14,48 @@ import java.util.concurrent.locks.ReentrantLock;
 /**
  * A {@linkplain BlockingQueue blocking queue} in which each insert
  * operation must wait for a corresponding remove operation by another
- * thread, and vice versa.  A synchronous queue does not have any
- * internal capacity, not even a capacity of one.  You cannot
- * {@code peek} at a synchronous queue because an element is only
- * present when you try to remove it; you cannot insert an element
- * (using any method) unless another thread is trying to remove it;
- * you cannot iterate as there is nothing to iterate.  The
- * <em>head</em> of the queue is the element that the first queued
- * inserting thread is trying to add to the queue; if there is no such
- * queued thread then no element is available for removal and
- * {@code poll()} will return {@code null}.  For purposes of other
- * {@code Collection} methods (for example {@code contains}), a
- * {@code SynchronousQueue} acts as an empty collection.  This queue
- * does not permit {@code null} elements.
+ * thread, and vice versa.
+ * -- {@linkplain BlockingQueue阻塞队列}，其中每个插入操作必须等待另一个线程进行相应的删除操作，反之亦然。
  *
- * <p>Synchronous queues are similar to rendezvous channels used in
- * CSP and Ada. They are well suited for handoff designs, in which an
- * object running in one thread must sync up with an object running
- * in another thread in order to hand it some information, event, or
- * task.
+ * A synchronous queue does not have any internal capacity, not even a capacity of one.
+ * -- 同步队列没有任何内部容量，甚至没有一个容量。
  *
- * <p>This class supports an optional fairness policy for ordering
+ * You cannot {@code peek} at a synchronous queue because an element is only present when you try to remove it;
+ * -- 您无法在同步队列中{@code peek}，因为仅当您尝试删除它时，该元素才存在。
+ *
+ * you cannot insert an element (using any method) unless another thread is trying to remove it;
+ * -- 您不能插入元素（使用任何方法），除非另一个线程试图将其删除；
+ *
+ *
+ * you cannot iterate as there is nothing to iterate.
+ * -- 您无法迭代，因为没有要迭代的内容。
+ *
+ * The <em>head</em> of the queue is the element that the first queued inserting thread is trying to add to the queue;
+ * -- 队列的<em> head </ em>是第一个排队的插入线程试图添加到队列中的元素；
+ *
+ * if there is no such queued thread then no element is available for removal and {@code poll()} will return {@code null}.
+ * -- 如果没有这样的排队线程，则没有元素可用于删除，并且{@code poll（）}将返回{@code null}。
+ *
+ * For purposes of other {@code Collection} methods (for example {@code contains}), a {@code SynchronousQueue} acts as an empty collection.
+ * -- 出于其他{@code Collection}方法（例如{@code contains}）的目的，{@code SynchronousQueue}表现得像空集合。
+ *
+ * This queue does not permit {@code null} elements.
+ * -- 此队列不允许{@code null}元素。！！！！！
+ *
+ * <p>
+ * Synchronous queues are similar to rendezvous channels used in CSP and Ada.
+ * -- 同步队列类似于CSP和Ada中使用的集合通道。
+ *
+ * They are well suited for handoff designs, in which an object running in one thread must sync up with
+ * an object running in another thread in order to hand it some information, event, or task.
+ * -- 它们非常适合切换设计，在该设计中，在一个线程中运行的对象必须与在另一个线程中运行的对象同步，以便向其传递一些信息，事件或任务。
+ *
+ * <p>
+ * This class supports an optional fairness policy for ordering
  * waiting producer and consumer threads.  By default, this ordering
  * is not guaranteed. However, a queue constructed with fairness set
  * to {@code true} grants threads access in FIFO order.
+ * -- 意思就是该类支持公平跟非公平，默认是非公平
  *
  * <p>This class and its iterator implement all of the
  * <em>optional</em> methods of the {@link Collection} and {@link
@@ -88,8 +70,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * @since 1.5
  */
 @SuppressWarnings("all")
-public class SynchronousQueue<E> extends AbstractQueue<E>
-        implements BlockingQueue<E>, java.io.Serializable {
+public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQueue<E>, java.io.Serializable {
 
     private static final long serialVersionUID = -3223113410248163686L;
 
@@ -100,33 +81,55 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
      * M. L. Scott.  18th Annual Conf. on Distributed Computing,
      * Oct. 2004 (see also
      * http://www.cs.rochester.edu/u/scott/synchronization/pseudocode/duals.html).
+     *
      * The (Lifo) stack is used for non-fair mode, and the (Fifo)
-     * queue for fair mode. The performance of the two is generally
+     * queue for fair mode.
+     * -- （Lifo）堆栈用于非公平模式，（Fifo）队列用于公平模式。
+     *
+     * The performance of the two is generally
      * similar. Fifo usually supports higher throughput under
      * contention but Lifo maintains higher thread locality in common
      * applications.
+     * -- 两者的性能通常相似。 Fifo通常在竞争下支持更高的吞吐量，但是Lifo在常见应用程序中保持更高的线程局部性。
      *
      * A dual queue (and similarly stack) is one that at any given
      * time either holds "data" -- items provided by put operations,
      * or "requests" -- slots representing take operations, or is
-     * empty. A call to "fulfill" (i.e., a call requesting an item
+     * empty.
+     *
+     * A call to "fulfill" (i.e., a call requesting an item
      * from a queue holding data or vice versa) dequeues a
-     * complementary node.  The most interesting feature of these
+     * complementary node.
+     * -- 对“实现”的调用（即，从保存数据的队列中请求商品的调用，反之亦然）使互补节点出队。
+     *
+     * The most interesting feature of these
      * queues is that any operation can figure out which mode the
      * queue is in, and act accordingly without needing locks.
+     * -- 这些队列最有趣的功能是，任何操作都可以弄清楚队列所处的模式，并且无需锁就可以采取相应的措施。
      *
      * Both the queue and stack extend abstract class Transferer
      * defining the single method transfer that does a put or a
-     * take. These are unified into a single method because in dual
-     * data structures, the put and take operations are symmetrical,
-     * so nearly all code can be combined. The resulting transfer
+     * take.
+     * -- 队列和堆栈都扩展了抽象类Transferer，它们定义了执行放置或取出操作的单个方法。
+     *
+     * These are unified into a single method because in dual
+     * data structures, the put and take operations are symmetrical(对称的),
+     * so nearly all code can be combined.
+     * -- 将它们统一为一个方法，因为在双重数据结构中，放置和取出操作是对称的，因此几乎所有代码都可以合并。
+     *
+     * The resulting transfer
      * methods are on the long side, but are easier to follow than
      * they would be if broken up into nearly-duplicated parts.
+     * --TODO 最终的传输方法长远来看，但比分解成几乎重复的部分要容易得多。????
      *
      * The queue and stack data structures share many conceptual
-     * similarities but very few concrete details. For simplicity,
+     * similarities but very few concrete details.
+     * -- 队列和堆栈数据结构在概念上有很多相似之处，但具体细节很少。
+     *
+     * For simplicity,
      * they are kept distinct so that they can later evolve
      * separately.
+     * -- 为简单起见，它们保持不同，以便以后可以分别发展。
      *
      * The algorithms here differ from the versions in the above paper
      * in extending them for use in synchronous queues, as well as
@@ -134,28 +137,44 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
      *
      *  1. The original algorithms used bit-marked pointers, but
      *     the ones here use mode bits in nodes, leading to a number
-     *     of further adaptations.
+     *     of further adaptations. -- 原始算法使用带位标记的指针，但是这里的算法使用节点中的模式位，从而导致了许多进一步的适应。
+     *
      *  2. SynchronousQueues must block threads waiting to become
-     *     fulfilled.
+     *     fulfilled. -- SynchronousQueues必须阻塞等待fulfilled的线程。
+     *
      *  3. Support for cancellation via timeout and interrupts,
      *     including cleaning out cancelled nodes/threads
      *     from lists to avoid garbage retention and memory depletion.
+     * -- 支持通过超时和中断进行取消，包括从列表中清除已取消的节点/线程，以避免垃圾保留和内存耗尽
      *
      * Blocking is mainly accomplished using LockSupport park/unpark,
      * except that nodes that appear to be the next ones to become
-     * fulfilled first spin a bit (on multiprocessors only). On very
-     * busy synchronous queues, spinning can dramatically improve
-     * throughput. And on less busy ones, the amount of spinning is
-     * small enough not to be noticeable.
+     * fulfilled first spin a bit (on multiprocessors only).
+     * -- 阻塞主要使用LockSupport暂存/取消暂存来完成，除了看起来像是首先要实现的下一个要暂存的节点外，它还会旋转一点（仅在多处理器上）。
      *
-     * Cleaning is done in different ways in queues vs stacks.  For
+     * On very
+     * busy synchronous queues, spinning can dramatically improve
+     * throughput. -- 在非常繁忙的同步队列上，旋转可以大大提高吞吐量。
+     *
+     * And on less busy ones, the amount of spinning is
+     * small enough not to be noticeable.-- 在不那么忙碌的纺纱厂上，纺纱的量很小，不足以引起注意。
+     *
+     * Cleaning is done in different ways in queues vs stacks.
+     * -- 在队列和堆栈中以不同的方式进行清理
+     *
+     * For
      * queues, we can almost always remove a node immediately in O(1)
      * time (modulo retries for consistency checks) when it is
      * cancelled. But if it may be pinned as the current tail, it must
-     * wait until some subsequent cancellation. For stacks, we need a
+     * wait until some subsequent cancellation.
+     * -- 对于队列，我们​​几乎总是可以在取消节点后的O（1）时间内立即删除该节点（进行模数重试以进行一致性检查）。但是，如果可能将其固定为当前尾巴，则必须等待直到随后的一些取消。
+     *
+     * For
+     * stacks, we need a
      * potentially O(n) traversal to be sure that we can remove the
      * node, but this can run concurrently with other threads
      * accessing the stack.
+     * -- 对于堆栈，我们需要潜在的O（n）遍历，以确保可以删除节点，但这可以与其他访问堆栈的线程同时运行
      *
      * While garbage collection takes care of most node reclamation
      * issues that otherwise complicate nonblocking algorithms, care
@@ -168,10 +187,15 @@ public class SynchronousQueue<E> extends AbstractQueue<E>
      * old head pointers), but references in Queue nodes must be
      * aggressively forgotten to avoid reachability of everything any
      * node has ever referred to since arrival.
+     * -- 尽管垃圾回收会处理大多数会使非阻塞算法复杂化的节点回收问题，但还是要小心“忘记”对数据，
+     * 其他节点和可能被阻塞线程长期保留的线程的引用。
+     * 如果设置为null会与主要算法冲突，则可以通过将节点的链接更改为现在指向节点本身来完成。
+     * 对于Stack节点，这不会发生太多（因为阻塞的线程不会挂在旧的头部指针上），但是必须积极地忘记Queue节点中的引用，以防止自到达以来任何节点都曾引用的所有内容都可以访问。
      */
 
     /**
      * Shared internal API for dual stacks and queues.
+     * -- 双重堆栈和队列的共享内部API。
      */
     abstract static class Transferer<E> {
 
