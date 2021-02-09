@@ -752,16 +752,12 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                 else if (s.waiter == null) {
                     //把当前Node对应的Thread 保存到 Node.waiter字段中..
                     s.waiter = w; // establish waiter so can park next iter
-                }
-
-                else if (!timed) {
+                } else if (!timed) {
                     //条件成立：说明当前Node对应的请求  未指定超时限制。
 
                     //使用不指定超时限制的park方法 挂起当前线程，直到 当前线程被外部线程 使用unpark唤醒。
                     LockSupport.park(this);
-                }
-
-                else if (nanos > spinForTimeoutThreshold) {
+                } else if (nanos > spinForTimeoutThreshold) {
                     //什么时候执行到这里？ timed == true 设置了 超时限制..
 
                     //条件成立：nanos > 1000 纳秒的值，只有这种情况下，才允许挂起当前线程..否则 说明 超时给的太少了...挂起和唤醒的成本 远大于 空转自旋...
@@ -774,13 +770,14 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
          * Returns true if node s is at head or there is an active
          * fulfiller.
          * -- 如果节点s在头或有一个活跃的履行者，则返回true。
+         *
+         * 判断参数节点s是否可以自旋
          */
         boolean shouldSpin(SNode s) {
             //获取栈顶
             SNode h = head;
 
-            //条件一 h == s ：条件成立 说明当前s 就是栈顶，允许自旋检查...
-            return (h == s
+            return (h == s //条件一 h == s ：条件成立 说明当前s 就是栈顶，允许自旋检查...
 
                     //条件二 h == null : 什么时候成立？ 当前s节点 自旋检查期间，又来了一个 与当前s 节点匹配的请求，双双出栈了...条件会成立。
                     || h == null
@@ -806,7 +803,10 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
              * which case we try the node one past. We don't check any
              * further because we don't want to doubly traverse just to
              * find sentinel.
+             * -- 最糟糕的是，我们可能需要遍历整个堆栈以取消s的链接。如果有多个并发调用要清理，则如果另一个线程已将其删除，则可能看不到。
+             * 但是当看到任何已知跟随s的节点时，我们可以停止。除非也将其取消，否则我们将使用s.next，在这种情况下，我们将尝试过去一个节点。我们不做进一步检查，因为我们不想为了找到标记而进行双重遍历。
              */
+
             //检查取消节点的截止位置
             SNode past = s.next;
 
@@ -814,7 +814,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                 past = past.next;
             }
 
-            // Absorb cancelled nodes at head
+            // Absorb cancelled nodes at head -- 吸收头部的取消节点
+
             //当前循环检查节点
             SNode p;
             //从栈顶开始向下检查，将栈顶开始向下连续的 取消状态的节点 全部清理出去，直到碰到past为止。
