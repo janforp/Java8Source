@@ -201,16 +201,13 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
         /**
          * Performs a put or take.
+         * put跟get/take操作都通过实现该接口做到
          *
          * @param e if non-null, the item to be handed to a consumer;
-         * if null, requests that transfer return an item
+         * if null, requests that transfer return an item -- 可以为null，null时表示这个请求是一个 REQUEST 类型的请求，如果不是null，说明这个请求是一个 DATA 类型的请求。
          * offered by producer.
-         * @param timed if this operation should timeout
-         * @param nanos the timeout, in nanoseconds
-         * @param e 可以为null，null时表示这个请求是一个 REQUEST 类型的请求
-         * 如果不是null，说明这个请求是一个 DATA 类型的请求。
-         * @param timed 如果为true 表示指定了超时时间 ,如果为false 表示不支持超时，表示当前请求一直等待到匹配为止，或者被中断。
-         * @param nanos 超时时间限制 单位 纳秒
+         * @param timed if this operation should timeout-- 如果为true 表示指定了超时时间 ,如果为false 表示不支持超时，表示当前请求一直等待到匹配为止，或者被中断。
+         * @param nanos the timeout, in nanoseconds -- 超时时间限制 单位 纳秒
          * @return E 如果当前请求是一个 REQUEST类型的请求，返回值如果不为null 表示 匹配成功，如果返回null，表示REQUEST类型的请求超时 或 被中断。
          * 如果当前请求是一个 DATA 类型的请求，返回值如果不为null 表示 匹配成功，返回当前线程put的数据。
          * 如果返回值为null 表示，DATA类型的请求超时 或者 被中断..都会返回Null。
@@ -218,13 +215,15 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
         abstract E transfer(E e, boolean timed, long nanos);
     }
 
-    //为什么需要自旋这个操作？
-    //因为线程 挂起 唤醒站在cpu角度去看的话，是非常耗费资源的，涉及到用户态和内核态的切换...
-    //自旋的好处，自旋期间线程会一直检查自己的状态是否被匹配到，如果自旋期间被匹配到，那么直接就返回了
-    //如果自旋期间未被匹配到，自旋次数达到某个指标后，还是会将当前线程挂起的...
-    //NCPUS：当一个平台只有一个CPU时，你觉得还需要自旋么？
-    //答：肯定不需要自旋了，因为一个cpu同一时刻只能执行一个线程，自旋没有意义了...而且你还站着cpu 其它线程没办法执行..这个
-    //栈的状态更不会改变了.. 当只有一个cpu时 会直接选择 LockSupport.park() 挂起等待者线程。
+    /**
+     * 为什么需要自旋这个操作？
+     * 因为线程 挂起 唤醒站在cpu角度去看的话，是非常耗费资源的，涉及到用户态和内核态的切换...
+     * 自旋的好处，自旋期间线程会一直检查自己的状态是否被匹配到，如果自旋期间被匹配到，那么直接就返回了
+     * 如果自旋期间未被匹配到，自旋次数达到某个指标后，还是会将当前线程挂起的...
+     * NCPUS：当一个平台只有一个CPU时，你觉得还需要自旋么？
+     * 答：肯定不需要自旋了，因为一个cpu同一时刻只能执行一个线程，自旋没有意义了...而且你还占着cpu 其它线程没办法执行..这个
+     * 栈的状态更不会改变了.. 当只有一个cpu时 会直接选择 LockSupport.park() 挂起等待者线程。
+     */
 
     /**
      * The number of CPUs, for spin control
@@ -257,6 +256,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
     /**
      * The number of nanoseconds for which it is faster to spin
      * rather than to use timed park. A rough estimate suffices.
+     * -- 旋转秒级比使用定时停泊更快的纳秒数。粗略的估计就足够了。
      */
     //如果请求是指定超时限制的话，如果超时nanos参数是< 1000 纳秒时，
     //禁止挂起。挂起再唤醒的成本太高了..还不如选择自旋空转呢...
@@ -264,6 +264,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
     /** Dual stack */
     /**
+     * 双端栈
      * 非公平模式实现的同步队列，内部数据结构是 “栈”
      */
     static final class TransferStack<E> extends Transferer<E> {
@@ -797,6 +798,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
     /** Dual Queue */
     /**
+     * 双端队列
      * 公平模式同步队列
      */
     static final class TransferQueue<E> extends Transferer<E> {
@@ -1349,7 +1351,9 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
      * access; otherwise the order is unspecified.
      */
     public SynchronousQueue(boolean fair) {
-        transferer = fair ? new TransferQueue<E>() : new TransferStack<E>();
+        transferer = fair ?
+                new TransferQueue<E>() ://公平
+                new TransferStack<E>();//非公平
     }
 
     /**
@@ -1648,6 +1652,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
      * that exist solely to enable serializability across versions.
      * These fields are never used, so are initialized only if this
      * object is ever serialized or deserialized.
+     *
+     * -- 为了应对1.5版SynchronousQueue中的序列化策略，我们声明了一些未使用的类和字段，这些类和字段仅用于实现跨版本的可序列化性。这些字段从不使用，因此仅在对该对象进行序列化或反序列化时才进行初始化。
      */
 
     @SuppressWarnings("serial")
