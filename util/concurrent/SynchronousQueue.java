@@ -1057,6 +1057,14 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
         /**
          * Puts or takes an item.
+         *
+         * 若队列为空 / 队列中的尾节点和自己的 类型相同, 则添加 node
+         * 到队列中, 直到 timeout/interrupt/其他线程和这个线程匹配
+         * timeout/interrupt awaitFulfill方法返回的是 node 本身
+         * 匹配成功的话, 要么返回 null (producer返回的), 或正真的传递值 (consumer 返回的)
+         *
+         * 队列不为空, 且队列的 head.next 节点是当前节点匹配的节点,
+         * 进行数据的传递匹配, 并且通过 advanceHead 方法帮助 先前 block 的节点 dequeue
          */
         @SuppressWarnings("unchecked")
         E transfer(E e, boolean timed, long nanos) {
@@ -1083,29 +1091,39 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
              * transferer. The check is here anyway because it places
              * null checks at top of loop, which is usually faster
              * than having them implicitly interspersed.
+
+             *
+             * 这个 producer / consumer 的主方法, 主要分为两种情况
+             *
+             * 1. 若队列为空 / 队列中的尾节点和自己的 类型相同, 则添加 node
+             *      到队列中, 直到 timeout/interrupt/其他线程和这个线程匹配
+             *      timeout/interrupt awaitFulfill方法返回的是 node 本身
+             *      匹配成功的话, 要么返回 null (producer返回的), 或正真的传递值 (consumer 返回的)
+             *
+             * 2. 队列不为空, 且队列的 head.next 节点是当前节点匹配的节点,
+             *      进行数据的传递匹配, 并且通过 advanceHead 方法帮助 先前 block 的节点 dequeue
+             *
              */
             //s 指向当前请求 对应Node
-            QNode s = null; // constructed/reused as needed
-            //isData == true 表示 当前请求是一个写数据操作（DATA）   否则isData == false 表示当前请求是一个 REQUEST操作。
+            QNode s = null; // constructed/reused as needed 根据需要新建或者复用
+
+            /**
+             * 1.判断 e != null 用于区分 producer 与 consumer
+             * isData == true 表示 当前请求是一个写数据操作（DATA）   否则isData == false 表示当前请求是一个 REQUEST操作。
+             */
             boolean isData = (e != null);
 
             //自旋..
             for (; ; ) {
                 QNode t = tail;
                 QNode h = head;
-                if (t == null || h == null) {
-                    // saw uninitialized value
-                    //看到未初始化的值 说明还在初始化中,构造方法还没有执行完成
-                    continue;                       // spin
+                if (t == null || h == null) {               // 2. 数据未初始化, continue 重来,看到未初始化的值 说明还在初始化中,构造方法还没有执行完成
+                    continue;                       // saw uninitialized value,spin
                 }
 
-                //CASE1：入队
                 //条件一：成立，说明head和tail同时指向dummy节点，当前队列实际情况 就是 空队列。此时当前请求需要做入队操作，因为没有任何节点 可以去匹配。
-                if (h == t
-                        //条件二：队列不是空，队尾节点与当前请求类型是一致的情况。说明也是无法完成匹配操作的情况，此时当前节点只能入队...
-                        || t.isData == isData) {
-                    // empty or same-mode:队列还是空或者当前请求的节点类型跟尾节点的类型一样！
-
+                //条件二：队列不是空，队尾节点与当前请求类型是一致的情况。说明也是无法完成匹配操作的情况，此时当前节点只能入队...
+                if (h == t || t.isData == isData) {         //3. 队列为空, 或队列尾节点和自己相同 (注意这里是和尾节点比价, 下面进行匹配时是和 head.next 进行比较)
                     QNode tn = t.next;
                     /**
                      * 获取当前队尾t 的next节点 tn - t.next
@@ -1114,7 +1132,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                      *
                      * 因为多线程环境，当前线程在入队之前，其它线程有可能已经入队过了..改变了 tail 引用。
                      */
-                    if (t != tail) {
+                    if (t != tail) {                        // 4. tail 改变了, 重新再来
                         // inconsistent read：读不一致
                         //线程回到自旋...再选择路径执行。
                         continue;
@@ -1129,7 +1147,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                      *
                      * 说明已经有线程 入队了，且只完成了 入队的 第一步：设置t.next = newNode， 第二步可能尚未完成..
                      */
-                    if (tn != null) {               // lagging tail
+                    if (tn != null) {                       // 5. 其他线程添加了 tail.next, 所以帮助推进 tail，lagging tail(尾巴落后了，tn才是正在的tail)
                         //条件成立：说明已经有线程 入队了，且只完成了 入队的 第一步：设置t.next = newNode， 第二步可能尚未完成..
 
                         /**
@@ -1141,7 +1159,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                         continue;
                     }
 
-                    if (timed && nanos <= 0) {
+                    if (timed && nanos <= 0) {               // 6. 调用的方法的 wait 类型的, 并且 超时了, 直接返回 null, 直接见 SynchronousQueue.poll() 方法,说明此 poll 的调用只有当前队列中正好有一个与之匹配的线程在等待被【匹配才有返回值
                         //条件成立：说明当前调用transfer方法的 上层方法 可能是 offer() 无参的这种方法进来的，这种方法不支持 阻塞等待...
 
                         // can't wait
@@ -1152,11 +1170,11 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     //条件成立：说明当前请求尚未 创建对应的node
                     if (s == null) {
                         //创建node过程...
-                        s = new QNode(e, isData);
+                        s = new QNode(e, isData);           // 7. 构建节点 QNode
                     }
 
                     //条件 不成立：!t.casNext(null, s)  说明当前t仍然是tail，当前线程对应的Node入队的第一步 完成！
-                    if (!t.casNext(null, s)) {
+                    if (!t.casNext(null, s)) {        // 8. 将 新建的节点加入到 队列中
                         // failed to link in
                         continue;
                     }
@@ -1172,13 +1190,13 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     //当前请求为REQUEST模式时：e == null
                     //x == this 当前SNode对应的线程 取消状态
                     //x != null 且 item != this  表示当前REQUEST类型的Node已经匹配到一个DATA类型的Node了。
-                    Object x = awaitFulfill(s, e, timed, nanos);
+                    Object x = awaitFulfill(s, e, timed, nanos);    // 10. 调用awaitFulfill, 若节点是 head.next, 则进行一些自旋, 若不是的话, 直接 block, 直到有其他线程 与之匹配, 或它自己进行线程的中断
 
-                    if (x == s) {                   // wait was cancelled
+                    if (x == s) {                   // wait was cancelled，11. 若 (x == s)节点s 对应额线程 wait 超时 或线程中断, 不然的话 x == null (s 是 producer) 或 是正真的传递值(s 是 consumer)
                         //说明当前Node状态为 取消状态，需要做 出队逻辑。
 
                         //清理出队逻辑，最后讲。
-                        clean(t, s);
+                        clean(t, s);                // 12. 对节点 s 进行清除, 若 s 不是链表的最后一个节点, 则直接 CAS 进行 节点的删除, 若 s 是链表的最后一个节点, 则 要么清除以前的 cleamMe 节点(cleamMe != null), 然后将 s.prev 设置为 cleanMe 节点, 下次进行删除 或直接将 s.prev 设置为cleanMe
                         return null;
                     }
 
