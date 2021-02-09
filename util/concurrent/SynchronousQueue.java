@@ -1359,6 +1359,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
     /**
      * Adds the specified element to this queue, waiting if necessary for
      * another thread to receive it.
+     * -- 将指定的元素添加到此队列，如果有必要，等待另一个线程接收它。
      *
      * @throws InterruptedException {@inheritDoc}
      * @throws NullPointerException {@inheritDoc}
@@ -1376,14 +1377,13 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
     /**
      * Inserts the specified element into this queue, waiting if necessary
      * up to the specified wait time for another thread to receive it.
+     * -- 将指定的元素插入此队列，如有必要，请等待指定的等待时间，以便另一个线程接收它。
      *
-     * @return {@code true} if successful, or {@code false} if the
-     * specified waiting time elapses before a consumer appears
+     * @return {@code true} if successful, or {@code false} if the specified waiting time elapses before a consumer appears -- @code true}（如果成功），或{@code false}（如果在出现消费者之前经过了指定的等待时间）
      * @throws InterruptedException {@inheritDoc}
      * @throws NullPointerException {@inheritDoc}
      */
-    public boolean offer(E e, long timeout, TimeUnit unit)
-            throws InterruptedException {
+    public boolean offer(E e, long timeout, TimeUnit unit) throws InterruptedException {
         if (e == null) {
             throw new NullPointerException();
         }
@@ -1431,7 +1431,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
     /**
      * Retrieves and removes the head of this queue, waiting
      * if necessary up to the specified wait time, for another thread
-     * to insert it.
+     * to insert it.-- 检索并删除此队列的头，如有必要，可等待指定的等待时间，直到另一个线程将其插入。
      *
      * @return the head of this queue, or {@code null} if the
      * specified waiting time elapses before an element is present
