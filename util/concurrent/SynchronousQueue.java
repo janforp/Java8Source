@@ -274,9 +274,10 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
          * bit-marked pointers: Fulfilling operations push on marker
          * nodes (with FULFILLING bit set in mode) to reserve a spot
          * to match a waiting node.
+         * -- 这扩展了Scherer-Scott双栈算法，除其他方式外，它通过使用“覆盖”节点而不是位标记的指针而有所不同：实现操作将推送标记节点（将FULFILLING位设置为模式）以保留一个点以匹配等待节点。
          */
 
-        /* Modes for SNodes, ORed together in node fields */
+        /* Modes for SNodes, ORed together in node fields -- SNode的模式，在节点字段中一起或运算 */
         /** Node represents an unfulfilled consumer */
         /**
          * 表示Node类型为 请求类型
@@ -314,15 +315,24 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
             //与当前node匹配的节点
             volatile SNode match;       // the node matched to this
 
-            //假设当前node对应的线程 自旋期间未被匹配成功，那么node对应的线程需要挂起，挂起前 waiter 保存对应的线程引用，
-            //方便 匹配成功后，被唤醒。
+            /**
+             * 假设当前node对应的线程 自旋期间未被匹配成功，那么node对应的线程需要挂起，挂起前 waiter 保存对应的线程引用，
+             * 方便 匹配成功后，被唤醒。
+             */
             volatile Thread waiter;     // to control park/unpark
 
-            //数据域，data不为空 表示当前Node对应的请求类型为 DATA类型。 反之则表示Node为 REQUEST类型。
-            Object item;                // data; or null for REQUESTs
+            /**
+             * 数据;或对于REQUEST为null -- data; or null for REQUESTs
+             *
+             * 数据域，data不为空 表示当前Node对应的请求类型为 DATA类型。 反之则表示Node为 REQUEST类型。
+             */
+            Object item;
 
-            //表示当前Node的模式 【DATA/REQUEST/FULFILLING】
+            /**
+             * 表示当前Node的模式 【DATA/REQUEST/FULFILLING】
+             */
             int mode;
+
             // Note: item and mode fields don't need to be volatile
             // since they are always written before, and read after,
             // other volatile/atomic operations.
@@ -331,27 +341,35 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                 this.item = item;
             }
 
-            //CAS方式设置Node对象的next字段。
+            /**
+             * CAS方式设置Node对象的next字段。
+             *
+             * @param cmp 比较对象 TODO ?
+             * @param val 需要设置的值
+             * @return 成功失败
+             */
             boolean casNext(SNode cmp, SNode val) {
-                //优化：cmp == next  为什么要判断？
-                //因为cas指令 在平台执行时，同一时刻只能有一个cas指令被执行。
-                //有了java层面的这一次判断，可以提升一部分性能。 cmp == next 不相等，就没必要走 cas指令。
-                return cmp == next &&
-                        UNSAFE.compareAndSwapObject(this, nextOffset, cmp, val);
+                /**
+                 * 优化：cmp == next  为什么要判断？
+                 * 因为cas指令 在平台执行时，同一时刻只能有一个cas指令被执行。
+                 * 有了java层面的这一次判断，可以提升一部分性能。 cmp == next 不相等，就没必要走 cas指令。
+                 */
+                return cmp == next && UNSAFE.compareAndSwapObject(this, nextOffset, cmp, val);
             }
 
             /**
              * Tries to match node s to this node, if so, waking up thread.
              * Fulfillers call tryMatch to identify their waiters.
              * Waiters block until they have been matched.
+             * -- 尝试将节点s与此节点匹配，如果是，则唤醒线程。 Fulfiller呼叫tryMatch来识别其服务员。服务员封锁直到他们被匹配。
              *
              * @param s the node to match
              * @return ture 匹配成功。 否则匹配失败..
              */
             boolean tryMatch(SNode s) {
                 //条件一：match == null 成立，说明当前Node尚未与任何节点发生过匹配...
-                //条件二 成立：使用CAS方式 设置match字段，表示当前Node已经被匹配了
                 if (match == null &&
+                        //条件二 成立：使用CAS方式 设置match字段，表示当前Node已经被匹配了
                         UNSAFE.compareAndSwapObject(this, matchOffset, null, s)) {
                     //当前Node如果自旋结束，那么会使用LockSupport.park 方法挂起，挂起之前会将Node对应的Thread 保留到 waiter字段。
                     Thread w = waiter;
@@ -371,11 +389,23 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
              * 尝试取消..
              */
             void tryCancel() {
-                //match字段 保留当前Node对象本身，表示这个Node是取消状态，取消状态的Node，最终会被 强制 移除出栈。
+                /**
+                 * match字段 保留当前Node对象本身，表示这个Node是取消状态，取消状态的Node，最终会被 强制 移除出栈。
+                 *
+                 * 这个骚操作：把当前对象的match属性指向自己
+                 *
+                 * this.match = this;
+                 *
+                 * 目的是什么？因为取消的时候不能把当前对象设置为null,所以出此下策!
+                 */
                 UNSAFE.compareAndSwapObject(this, matchOffset, null, this);
             }
 
-            //如果match保留的是当前Node本身，那表示当前Node是取消状态，反之 则 非取消状态。
+            /**
+             * 如果match保留的是当前Node本身，那表示当前Node是取消状态，反之 则 非取消状态。
+             *
+             * @return
+             */
             boolean isCancelled() {
                 return match == this;
             }
@@ -391,10 +421,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                 try {
                     UNSAFE = sun.misc.Unsafe.getUnsafe();
                     Class<?> k = SNode.class;
-                    matchOffset = UNSAFE.objectFieldOffset
-                            (k.getDeclaredField("match"));
-                    nextOffset = UNSAFE.objectFieldOffset
-                            (k.getDeclaredField("next"));
+                    matchOffset = UNSAFE.objectFieldOffset(k.getDeclaredField("match"));
+                    nextOffset = UNSAFE.objectFieldOffset(k.getDeclaredField("next"));
                 } catch (Exception e) {
                     throw new Error(e);
                 }
@@ -407,10 +435,15 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
         //表示栈顶指针
         volatile SNode head;
 
-        //设置栈顶元素
+        /**
+         * 设置栈顶元素
+         *
+         * @param h 老的head
+         * @param nh 新的head
+         * @return 成功失败
+         */
         boolean casHead(SNode h, SNode nh) {
-            return h == head &&
-                    UNSAFE.compareAndSwapObject(this, headOffset, h, nh);
+            return h == head && UNSAFE.compareAndSwapObject(this, headOffset, h, nh);
         }
 
         /**
@@ -419,6 +452,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
          * reused when possible to help reduce intervals between reads
          * and CASes of head and to avoid surges of garbage when CASes
          * to push nodes fail due to contention.
+         * -- 创建或重置节点的字段。仅从传输中调用，在该传输中延迟创建要推送到栈上的节点，并在可能时进行重用，以帮助减少读取和头的CASes之间的间隔，并避免当CASes推送到节点由于争用而失败时产生的大量垃圾。
          *
          * @param s SNode引用，当这个引用指向空时，snode方法会创建一个SNode对象 并且赋值给这个引用
          * @param e SNode对象的item字段
@@ -613,14 +647,11 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
         }
 
         /**
-         * Spins/blocks until node s is matched by a fulfill operation.
+         * Spins/blocks until node s is matched by a fulfill operation.-- 旋转/阻塞，直到节点s通过执行操作匹配。
          *
-         * @param s the waiting node
-         * @param timed true if timed wait
-         * @param nanos timeout value
-         * @param s 当前请求Node
-         * @param timed 当前请求是否支持 超时限制
-         * @param nanos 如果请求支持超时限制，nanos 表示超时等待时长。
+         * @param s the waiting node 当前请求Node
+         * @param timed true if timed wait 当前请求是否支持 超时限制
+         * @param nanos timeout value 如果请求支持超时限制，nanos 表示超时等待时长。
          * @return matched node, or s if cancelled
          */
         SNode awaitFulfill(SNode s, boolean timed, long nanos) {
@@ -647,45 +678,56 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
              * method rather than calling awaitFulfill.
              */
 
-            //等待的截止时间。  timed == true  =>  System.nanoTime() + nanos
-            final long deadline = timed ? System.nanoTime() + nanos : 0L;
+            //等待的截止时间。
+            final long deadline = timed ?
+                    System.nanoTime() + nanos : // timed == true  =>  System.nanoTime() + nanos
+                    0L;
 
             //获取当前请求线程..
             Thread w = Thread.currentThread();
 
             //spins 表示当前请求线程 在 下面的 for(;;) 自旋检查中，自旋次数。 如果达到spins自旋次数时，当前线程对应的Node 仍然未被匹配成功，
             //那么再选择 挂起 当前请求线程。
-            int spins = (shouldSpin(s) ?
-                    //timed == true 指定了超时限制的，这个时候采用 maxTimedSpins == 32 ,否则采用 32 * 16
-                    (timed ? maxTimedSpins : maxUntimedSpins) : 0);
+            int spins = (
+
+                    shouldSpin(s) ?//是否可以自旋？
+
+                            //timed == true 指定了超时限制的，这个时候采用 maxTimedSpins == 32 ,否则采用 32 * 16
+                            (timed ? maxTimedSpins : maxUntimedSpins) :
+
+                            0 //如果不能自旋，则自旋次数=0
+            );
 
             //自旋检查逻辑：1.是否匹配  2.是否超时  3.是否被中断..
             for (; ; ) {
 
-                //条件成立：说明当前线程收到中断信号，需要设置Node状态为 取消状态。
-                if (w.isInterrupted())
-                //Node对象的 match 指向 当前Node 说明该Node状态就是 取消状态。
-                {
+                if (w.isInterrupted()) {
+                    //条件成立：说明当前线程收到中断信号，需要设置Node状态为 取消状态。
+
+                    //Node对象的 match 指向 当前Node 说明该Node状态就是 取消状态。
                     s.tryCancel();
+                    //取消之后继续往下执行
                 }
 
-                //m 表示与当前Node匹配的节点。
-                //1.正常情况：有一个请求 与 当前Node 匹配成功，这个时候 s.match 指向 匹配节点。
-                //2.取消情况：当前match 指向 当前Node...
+                /**
+                 * m 表示与当前Node匹配的节点。
+                 * 1.正常情况：有一个请求 与 当前Node 匹配成功，这个时候 s.match 指向 匹配节点。
+                 * 2.取消情况：当前match 指向 当前Node...
+                 */
                 SNode m = s.match;
-
-                if (m != null)
-                //可能正常 也可能是 取消...
-                {
+                if (m != null) {
+                    //可能正常 也可能是 取消...
                     return m;
                 }
 
-                //条件成立：说明指定了超时限制..
                 if (timed) {
+                    //条件成立：说明指定了超时限制..
+
                     //nanos 表示距离超时 还有多少纳秒..
                     nanos = deadline - System.nanoTime();
-                    //条件成立：说明已经超时了...
                     if (nanos <= 0L) {
+                        //条件成立：说明已经超时了...
+
                         //设置当前Node状态为 取消状态.. match-->当前Node
                         s.tryCancel();
                         continue;
@@ -693,29 +735,26 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                 }
 
                 //条件成立：说明当前线程还可以进行自旋检查...
-                if (spins > 0)
-                //自旋次数 累积 递减。。。
-                {
+                if (spins > 0) {
+                    //自旋次数 累积 递减。。。
                     spins = shouldSpin(s) ? (spins - 1) : 0;
                 }
 
                 //spins == 0 ，已经不允许再进行自旋检查了
-                else if (s.waiter == null)
-                //把当前Node对应的Thread 保存到 Node.waiter字段中..
-                {
+                else if (s.waiter == null) {
+                    //把当前Node对应的Thread 保存到 Node.waiter字段中..
                     s.waiter = w; // establish waiter so can park next iter
                 }
 
                 //条件成立：说明当前Node对应的请求  未指定超时限制。
-                else if (!timed)
-                //使用不指定超时限制的park方法 挂起当前线程，直到 当前线程被外部线程 使用unpark唤醒。
-                {
+                else if (!timed) {
+                    //使用不指定超时限制的park方法 挂起当前线程，直到 当前线程被外部线程 使用unpark唤醒。
                     LockSupport.park(this);
                 }
 
                 //什么时候执行到这里？ timed == true 设置了 超时限制..
-                //条件成立：nanos > 1000 纳秒的值，只有这种情况下，才允许挂起当前线程..否则 说明 超时给的太少了...挂起和唤醒的成本 远大于 空转自旋...
                 else if (nanos > spinForTimeoutThreshold) {
+                    //条件成立：nanos > 1000 纳秒的值，只有这种情况下，才允许挂起当前线程..否则 说明 超时给的太少了...挂起和唤醒的成本 远大于 空转自旋...
                     LockSupport.parkNanos(this, nanos);
                 }
             }
@@ -724,14 +763,20 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
         /**
          * Returns true if node s is at head or there is an active
          * fulfiller.
+         * -- 如果节点s在头或有一个活跃的履行者，则返回true。
          */
         boolean shouldSpin(SNode s) {
             //获取栈顶
             SNode h = head;
+
             //条件一 h == s ：条件成立 说明当前s 就是栈顶，允许自旋检查...
-            //条件二 h == null : 什么时候成立？ 当前s节点 自旋检查期间，又来了一个 与当前s 节点匹配的请求，双双出栈了...条件会成立。
-            //条件三 isFulfilling(h.mode) ： 前提 当前 s 不是 栈顶元素。并且当前栈顶正在匹配中，这种状态 栈顶下面的元素，都允许自旋检查。
-            return (h == s || h == null || isFulfilling(h.mode));
+            return (h == s
+
+                    //条件二 h == null : 什么时候成立？ 当前s节点 自旋检查期间，又来了一个 与当前s 节点匹配的请求，双双出栈了...条件会成立。
+                    || h == null
+
+                    //条件三 isFulfilling(h.mode) ： 前提 当前 s 不是 栈顶元素。并且当前栈顶正在匹配中，这种状态 栈顶下面的元素，都允许自旋检查。
+                    || isFulfilling(h.mode));
         }
 
         /**
