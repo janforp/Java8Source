@@ -251,15 +251,16 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
      */
     //表示未指定超时限制的话，线程等待匹配时，自旋次数。
     //是指定超时限制的请求的自旋次数的16倍.
-    static final int maxUntimedSpins = maxTimedSpins * 16;
+    static final int maxUntimedSpins = maxTimedSpins * 16;//0或者512次
 
     /**
      * The number of nanoseconds for which it is faster to spin
      * rather than to use timed park. A rough estimate suffices.
      * -- 旋转秒级比使用定时停泊更快的纳秒数。粗略的估计就足够了。
+     *
+     * 如果请求是指定超时限制的话，如果超时nanos参数是< 1000 纳秒时，
+     * 禁止挂起。挂起再唤醒的成本太高了..还不如选择自旋空转呢...
      */
-    //如果请求是指定超时限制的话，如果超时nanos参数是< 1000 纳秒时，
-    //禁止挂起。挂起再唤醒的成本太高了..还不如选择自旋空转呢...
     static final long spinForTimeoutThreshold = 1000L;
 
     /** Dual stack */
