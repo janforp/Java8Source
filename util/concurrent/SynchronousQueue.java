@@ -1807,13 +1807,11 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                      * 此时自旋次数也用完了，只能想办法挂起当前线程了
                      */
                     s.waiter = w;
-                }
+                } else if (!timed) {
+                    //条件成立：说明当前请求未指定超时限制。挂起采用 不指定超时的挂起方法..
 
-                //条件成立：说明当前请求未指定超时限制。挂起采用 不指定超时的挂起方法..
-                else if (!timed) {
                     LockSupport.park(this);
                 }
-
                 //执行到这里，说明 timed==true
                 //条件 不成立：nanos 太小了，没有必要挂起线程了，还不如自旋 实在。
                 else if (nanos > spinForTimeoutThreshold) {
