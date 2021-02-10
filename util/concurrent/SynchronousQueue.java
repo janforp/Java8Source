@@ -777,7 +777,16 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                              *  然后进行clean操作，所以才会导致这个情况的出现！！！！
                              */
                             if (m == null) {        // all waiters are gone - 所有的服务员都走了
-                                //将整个栈清空。
+                                /**
+                                 * 此时栈的结构为如下：
+                                 * ｜F｜R｜ 当前s节点
+                                 * ｜————｜
+                                 *
+                                 * 这个情况就很尴尬，当前头节点的mode既不是R也不是D，无法与任何节点匹配
+                                 * 需要清空整个栈！
+                                 *
+                                 * 将整个栈清空
+                                 */
                                 casHead(s, null);   // pop fulfill node
                                 s = null;           // use new node next time
                                 //回到外层大的 自旋中，再重新选择路径执行，此时有可能 插入一个节点。
@@ -786,20 +795,56 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
                             //什么时候会执行到这里呢？
                             //fulfilling 匹配节点不为null，进行真正的匹配工作。
+                            //m != null
 
                             //获取 匹配节点的 下一个节点。
                             SNode mn = m.next;
-                            //尝试匹配，匹配成功，则将fulfilling 和 m 一起出栈。
+                            /**
+                             * ｜F｜R｜ s
+                             * ｜————｜
+                             * ｜D   ｜ m
+                             * ｜————｜
+                             * ｜D   ｜ m.next
+                             * ｜————｜
+                             *
+                             * 尝试匹配，匹配成功，则将fulfilling 和 m 一起出栈。
+                             *
+                             * 由m节点去匹配当前的头节点s
+                             * 匹配成功之后，s跟m节点都出栈了
+                             *
+                             * ｜D   ｜ m.next
+                             * ｜————｜
+                             *
+                             */
                             if (m.tryMatch(s)) {
                                 //结对出栈
+                                //s跟m节点都出栈了,并且设置head的新值
                                 casHead(s, mn);     // pop both s and m
 
                                 return (E) ((mode == REQUEST) ?
                                         m.item : //当前NODE模式为REQUEST类型：返回匹配节点的m.item 数据域
                                         s.item);//当前NODE模式为DATA类型：返回Node.item 数据域，当前请求提交的 数据e
                             } else {
-                                // lost match
-                                //强制出栈
+                                // lost match - 输了比赛
+                                /**
+                                 * 强制m出栈
+                                 *
+                                 * ｜F｜R｜ s
+                                 * ｜————｜
+                                 * ｜D   ｜ m
+                                 * ｜————｜
+                                 * ｜D   ｜ mn = m.next
+                                 * ｜————｜
+                                 *
+                                 * m.tryMatch(s)失败，说明m节点在此时clean了自己
+                                 * 则
+                                 * ｜F｜R｜ s
+                                 * ｜————｜
+                                 * ｜D   ｜ mn = m.next
+                                 * ｜————｜
+                                 *
+                                 * 把s.next设置为 mn，因为m节点清理出栈了
+                                 */
                                 s.casNext(m, mn);   // help unlink
                             }
                         }
