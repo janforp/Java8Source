@@ -646,6 +646,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                                 timed, nanos);
 
                         //执行到这里，说明上面的阻塞方法已经完成，继续往下执行了，可能匹配成功，也可能失败
+                        //m为与当前节点匹配的节点
 
                         if (m == s) {
                             // wait was cancelled
@@ -656,13 +657,26 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                             //取消状态 最终返回null
                             return null;
                         }
-                        //执行到这里 说明当前Node已经被匹配了...
+                        //执行到这里 说明当前Node已经被匹配成功了
 
-                        if ((h = head) != null//条件一：成立，说明栈顶是有Node
+                        if ((h = head) != null//条件一：成立，说明栈顶是有Node(栈顶发生了变化)
 
                                 //条件二：成立，说明 Fulfill 和 当前Node 还未出栈，需要协助出栈。
                                 && h.next == s) {
-
+                            /**
+                             *  ｜ F  ｜
+                             *  ｜————｜
+                             *  ｜ s  ｜
+                             *  ｜————｜
+                             *  ｜s.n ｜
+                             *  ｜————｜
+                             *
+                             *  说明与s匹配的请求来了，成功匹配了
+                             *  此时协助栈顶跟h.next两个节点出栈,出栈之后：
+                             *
+                             *  ｜ s.n｜
+                             *  ｜————｜
+                             */
                             //将fulfill 和 当前Node 结对 出栈
                             casHead(h, s.next);     // help s's fulfiller
                         }
