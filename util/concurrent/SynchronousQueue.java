@@ -1764,9 +1764,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     //执行到这里，说明匹配已经完成了，匹配完成后，需要做什么？
                     //1.将真正的头节点 出队。让这个真正的头结点成为dummy节点
                     advanceHead(h, m);              // successfully fulfilled 匹配完成之后的逻辑
-                    //2.唤醒匹配节点的线程..
+                    //2.唤醒被当前请求匹配节点的线程..
                     LockSupport.unpark(m.waiter);
-
                     return (x != null) ?
                             (E) x ://x != null 成立，说明当前请求是REQUEST类型，返回匹配到的数据x
                             e;//x != null 不成立，说明当前请求是DATA类型，返回DATA请求时的e。
