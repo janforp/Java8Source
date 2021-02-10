@@ -917,6 +917,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
                     //使用不指定超时限制的park方法 挂起当前线程，直到 当前线程被外部线程 使用unpark唤醒。
                     LockSupport.park(this);
+                    //唤醒之后继续从这里开始执行，一般在下一次for循环的时候就会退出
                 } else if (nanos > spinForTimeoutThreshold) {
                     /**
                      * 前提：
@@ -930,6 +931,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
                     //条件成立：nanos > 1000 纳秒的值，只有这种情况下，才允许挂起当前线程..否则 说明 超时给的太少了...挂起和唤醒的成本 远大于 空转自旋...
                     LockSupport.parkNanos(this, nanos);
+                    //唤醒之后继续从这里开始执行，一般在下一次for循环的时候就会退出
                 }
             }
         }
