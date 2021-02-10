@@ -1608,6 +1608,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                      * x != null 且 item != this  表示当前REQUEST类型的Node已经匹配到一个DATA类型的Node了。
                      */
                     Object x = awaitFulfill(s, e, timed, nanos);    // 10. 调用awaitFulfill, 若节点是 head.next, 则进行一些自旋, 若不是的话, 直接 block, 直到有其他线程 与之匹配, 或它自己进行线程的中断
+                    //唤醒之后继续往下执行
 
                     if (x == s) {                   // wait was cancelled-- 等待被取消
                         // 11. 若 (x == s)节点s 对应额线程 wait 超时 或线程中断,
