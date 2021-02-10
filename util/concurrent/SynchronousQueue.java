@@ -1742,57 +1742,70 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
                     //更新线程对应的Node状态为 取消状态..
                     //数据域item 指向当前Node自身，表示取消状态.
+                    //s.item = s
                     s.tryCancel(e);
                 }
 
-                //获取当前Node数据域
+                /**
+                 * 获取当前Node数据域
+                 *
+                 * item有几种情况呢？
+                 * 当SNode模式为DATA(提供数据)模式时：
+                 * 1.item != null 且 item != this  表示请求要传递的数据 put(E e)
+                 * 2.item == this 当前SNode对应的线程 取消状态
+                 * 3.item == null 表示已经有匹配节点了，并且匹配节点拿走了item数据。
+                 *
+                 * 当SNode模式为REQUEST(获取数据)模式时：
+                 * 1.item == null 时，正常状态，当前请求仍然未匹配到对应的DATA请求。
+                 * 2.item == this 当前SNode对应的线程 取消状态
+                 * 3.item != null 且 item != this  表示当前REQUEST类型的Node已经匹配到一个DATA类型的Node了。
+                 */
                 Object x = s.item;
-                //item有几种情况呢？
-                //当SNode模式为DATA模式时：
-                //1.item != null 且 item != this  表示请求要传递的数据 put(E e)
-                //2.item == this 当前SNode对应的线程 取消状态
-                //3.item == null 表示已经有匹配节点了，并且匹配节点拿走了item数据。
 
-                //当SNode模式为REQUEST模式时：
-                //1.item == null 时，正常状态，当前请求仍然未匹配到对应的DATA请求。
-                //2.item == this 当前SNode对应的线程 取消状态
-                //3.item != null 且 item != this  表示当前REQUEST类型的Node已经匹配到一个DATA类型的Node了。
-
-                //条件成立：
-                //当前请求为DATA模式时：e 请求带来的数据
-                //item == this 当前SNode对应的线程 取消状态
-                //item == null 表示已经有匹配节点了，并且匹配节点拿走了item数据。
-
-                //当前请求为REQUEST模式时：e == null
-                //item == this 当前SNode对应的线程 取消状态
-                //item != null 且 item != this  表示当前REQUEST类型的Node已经匹配到一个DATA类型的Node了。
                 if (x != e) {
+                    /**
+                     * 条件成立：
+                     * 当前请求为DATA模式时：e 请求带来的数据
+                     * item == this 当前SNode对应的线程 取消状态
+                     * item == null 表示已经有匹配节点了，并且匹配节点拿走了item数据。
+                     *
+                     * 当前请求为REQUEST模式时：e == null
+                     * item == this 当前SNode对应的线程 取消状态
+                     * item != null 且 item != this  表示当前REQUEST类型的Node已经匹配到一个DATA类型的Node了。
+                     */
                     return x;
                 }
 
-                //条件成立：说明请求指定了超时限制..
                 if (timed) {
+                    //条件成立：说明请求指定了超时限制..
+
                     //nanos表示距离截止时间的长度..
                     nanos = deadline - System.nanoTime();
-                    //条件成立：说明当前Node对应的线程 已经等待超时了，需要取消了.
                     if (nanos <= 0L) {
+                        //条件成立：说明当前Node对应的线程 已经等待超时了，需要取消了.
+
                         s.tryCancel(e);
                         continue;
                     }
                 }
 
+                //没有超时或者没有设置超时的时候
+
                 //条件成立：说明当前线程 还可以进行自旋检查..
                 if (spins > 0) {
                     //递减..
-
                     --spins;
                 }
 
                 //执行到这里，说明spins == 0;
-                //条件成立：当前Node尚未设置waiter字段..
                 else if (s.waiter == null) {
-                    //保存当前Node对应的线程，方便后面挂起线程后，外部线程使用s.waiter字段唤醒 当前Node对应的线程。
-
+                    /**
+                     * 条件成立：当前Node尚未设置waiter字段..
+                     * 保存当前Node对应的线程，方便后面挂起线程后，
+                     * 外部线程使用s.waiter字段唤醒 当前Node对应的线程。
+                     *
+                     * 此时自旋次数也用完了，只能想办法挂起当前线程了
+                     */
                     s.waiter = w;
                 }
 
@@ -1805,7 +1818,6 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                 //条件 不成立：nanos 太小了，没有必要挂起线程了，还不如自旋 实在。
                 else if (nanos > spinForTimeoutThreshold) {
                     //nanos > 1000.
-
                     LockSupport.parkNanos(this, nanos);
                 }
             }
