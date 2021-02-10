@@ -487,8 +487,10 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
         /**
          * The head (top) of the stack
+         * 栈数据结构就只又一个栈顶节点引用就好了
+         *
+         * 表示栈顶指针，有栈顶就能操作这个栈了
          */
-        //表示栈顶指针
         volatile SNode head;
 
         /**
@@ -499,7 +501,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
          * @return 成功失败
          */
         boolean casHead(SNode h, SNode nh) {
-            return h == head && UNSAFE.compareAndSwapObject(this, headOffset, h, nh);
+            return h == head//该条件成立才会cas
+                    && UNSAFE.compareAndSwapObject(this, headOffset, h, nh);
         }
 
         /**
@@ -914,14 +917,16 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
         // Unsafe mechanics
         private static final sun.misc.Unsafe UNSAFE;
 
+        /**
+         * 该栈顶引用的内层偏移量
+         */
         private static final long headOffset;
 
         static {
             try {
                 UNSAFE = sun.misc.Unsafe.getUnsafe();
                 Class<?> k = TransferStack.class;
-                headOffset = UNSAFE.objectFieldOffset
-                        (k.getDeclaredField("head"));
+                headOffset = UNSAFE.objectFieldOffset(k.getDeclaredField("head"));
             } catch (Exception e) {
                 throw new Error(e);
             }
