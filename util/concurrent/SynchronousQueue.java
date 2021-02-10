@@ -857,6 +857,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                 SNode m = s.match;
                 if (m != null) {
                     //可能正常 也可能是 取消...
+                    //这是该方法的唯一出口！！！！
                     return m;
                 }
 
@@ -868,36 +869,63 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     //nanos 表示距离超时 还有多少纳秒..
                     nanos = deadline - System.nanoTime();
                     if (nanos <= 0L) {
-                        //条件成立：说明已经超时了...
+                        //条件成立：说明已经超时了或者刚好到超时时间
 
-                        //设置当前Node状态为 取消状态.. match-->当前Node
+                        //超时的时候也会置当前Node状态为 取消状态.. match-->当前Node
+                        //TODO:中断的时候也是取消，超时的时候也是取消，那么如果区分这两种不同的状态呢？
                         s.tryCancel();
                         continue;
                     }
                 }
 
-                //到这里：没有设置超时，或者还没有超时
+                //到这里：没有设置超时，或者还没有超时，继续自旋
 
                 if (spins > 0) {
                     //条件成立：说明当前线程还可以进行自旋检查...
 
                     spins = shouldSpin(s) ? //TODO 为什么这里又判断一次呢？
 
-                            (spins - 1) ://自旋次数 累积 递减。。。
+                            (spins - 1) ://自旋次数 累积 递减，表示下一次自旋开始了
 
                             0;
                 }
 
-                //spins == 0 ，已经不允许再进行自旋检查了
+                //执行到这:说明执行次数用完了，spins == 0 ，已经不允许再进行自旋检查了
                 else if (s.waiter == null) {
-                    //把当前Node对应的Thread 保存到 Node.waiter字段中..
+                    /**
+                     * 执行次数用完了，可能还没有匹配到，接下来可能需要挂起了，
+                     * 所以把当前Node对应的Thread 保存到 Node.waiter字段中..
+                     */
                     s.waiter = w; // establish waiter so can park next iter
-                } else if (!timed) {
-                    //条件成立：说明当前Node对应的请求  未指定超时限制。
+                }
+
+                /**
+                 * 执行到这里，说明执行次数用完了，并且s.waiter也又值了，下面就可以进行挂起相关的操作了
+                 * 下面2个情况就是看是否指定了超时，分别采用不同的挂起策略
+                 */
+
+                else if (!timed) {
+                    /**
+                     * 前提：
+                     * 1.自旋次数用完
+                     * 2.s.waiter已经赋值了
+                     *
+                     * 接下来就要挂起了
+                     *
+                     * 此时如果没有指定超时：说明当前Node对应的请求  未指定超时限制。
+                     */
 
                     //使用不指定超时限制的park方法 挂起当前线程，直到 当前线程被外部线程 使用unpark唤醒。
                     LockSupport.park(this);
                 } else if (nanos > spinForTimeoutThreshold) {
+                    /**
+                     * 前提：
+                     * 1.自旋次数用完
+                     * 2.s.waiter已经赋值了
+                     * 3.指定了超时，并且指定了超时时间,并且超时时间大于1000ns
+                     *
+                     * 接下来就要挂起了
+                     */
                     //什么时候执行到这里？ timed == true 设置了 超时限制..
 
                     //条件成立：nanos > 1000 纳秒的值，只有这种情况下，才允许挂起当前线程..否则 说明 超时给的太少了...挂起和唤醒的成本 远大于 空转自旋...
