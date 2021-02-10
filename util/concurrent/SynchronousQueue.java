@@ -1761,11 +1761,11 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                  * 3.item != null 且 item != this  表示当前REQUEST类型的Node已经匹配到一个DATA类型的Node了。
                  */
                 Object x = s.item;
-
-                if (x != e) {
+                if (x != e) {//s.item != e
                     /**
                      * 条件成立：
                      * 当前请求为DATA模式时：e 请求带来的数据
+                     * 此时如果  s.item != e 则有2种情况：
                      * item == this 当前SNode对应的线程 取消状态
                      * item == null 表示已经有匹配节点了，并且匹配节点拿走了item数据。
                      *
