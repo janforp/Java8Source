@@ -853,8 +853,22 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
                 /**
                  * CASE3：什么时候会执行？
+                 * 1.栈不是空的
+                 * 2.当前栈顶元素类型与当前请求类型不同
+                 * 3.当前栈顶类型是 FULFILLING模式
+                 *
                  * 栈顶模式为 FULFILLING模式:表示栈顶和栈顶下面的栈帧正在发生匹配...
                  * 当前请求需要做 协助 工作。
+                 *
+                 * 当前请求类型可能为R/D
+                 * 栈顶为F状态
+                 *
+                 * ｜F｜R｜ 栈顶h
+                 * ｜————｜
+                 * ｜D   ｜ m
+                 * ｜————｜
+                 * ｜D   ｜ mn
+                 * ｜————｜
                  */
                 else {                            // help a fulfiller
                     //h 表示的是 fulfilling节点,m fulfilling匹配的节点。
@@ -863,6 +877,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     //当s.next节点 超时或者被外部线程中断唤醒后，会执行 clean 操作 将 自己清理出栈，此时
                     //站在匹配者线程 来看，真有可能拿到一个null。
                     if (m == null) {
+                        //跟上面的情况一样，说明此时m刚好clean自己
                         // waiter is gone
                         //清空栈
                         casHead(h, null);           // pop fulfilling node
@@ -870,15 +885,23 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
                     //大部分情况：走else分支。
                     else {
+                        /**
+                         * ｜F｜R｜ 栈顶h
+                         * ｜————｜
+                         * ｜D   ｜ m:栈顶匹配节点
+                         * ｜————｜
+                         * ｜D   ｜ mn:栈顶匹配节点的 下一个节点
+                         * ｜————｜
+                         */
                         //获取栈顶匹配节点的 下一个节点
                         SNode mn = m.next;
                         //条件成立：说明 m 和 栈顶 匹配成功
-                        if (m.tryMatch(h)) {
+                        if (m.tryMatch(h)) {//还是下面的元素主动匹配上面的元素
                             // help match
                             //双双出栈，让栈顶指针指向 匹配节点的下一个节点。
                             casHead(h, mn);         // pop both h and m
                         } else {
-                            // lost match
+                            // lost match：此时m节点也超时了，clean了自己
                             //强制出栈
                             h.casNext(m, mn);       // help unlink
                         }
