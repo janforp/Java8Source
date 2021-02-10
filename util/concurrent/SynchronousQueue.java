@@ -569,6 +569,26 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                 //h 表示栈顶指针
                 SNode h = head;
 
+                /**
+                 *  栈    顶
+                 *
+                 *  ｜ D  ｜
+                 *  ｜————｜
+                 *  ｜ D  ｜
+                 *  ｜————｜
+                 *  ｜ D  ｜
+                 *  ｜————｜
+                 *  ｜ D  ｜
+                 *  ｜————｜
+                 *
+                 *  或者
+                 *
+                 *  栈    顶
+                 *
+                 *
+                 *  ｜    ｜
+                 *  ｜————｜
+                 */
                 //CASE1：当前栈内为空 或者 栈顶Node模式与当前请求模式一致，都是需要做入栈操作。
                 if (h == null //当前栈内为空
                         //栈顶Node模式与当前请求模式一致
@@ -631,9 +651,20 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                 }
 
                 /**
+                 *  栈    顶
+                 *
+                 *  当前类型为R
+                 *
+                 *  ｜ D  ｜
+                 *  ｜————｜
                  * 什么时候来到这？？
                  * 栈顶Node的模式与当前请求的模式不一致，会执行else if 的条件。
-                 * 栈顶是 (DATA  Reqeust)    (Request   DATA)   (FULFILLING  REQUEST/DATA)
+                 * 栈顶是          请求模型
+                 * (DATA            REQUEST)
+                 * (REQUEST         DATA)
+                 * (FULFILLING      REQUEST/DATA)
+                 * 会执行到这里
+                 *
                  * CASE2：当前栈顶模式与请求模式不一致，且栈顶不是FULFILLING
                  */
                 else if (!isFulfilling(h.mode)) { // try to fulfill
@@ -691,7 +722,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
                 /**
                  * CASE3：什么时候会执行？
-                 * 栈顶模式为 FULFILLING模式，表示栈顶和栈顶下面的栈帧正在发生匹配...
+                 * 栈顶模式为 FULFILLING模式:表示栈顶和栈顶下面的栈帧正在发生匹配...
                  * 当前请求需要做 协助 工作。
                  */
                 else {                            // help a fulfiller
