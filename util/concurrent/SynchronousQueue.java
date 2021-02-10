@@ -780,12 +780,13 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
         }
 
         /**
-         * Spins/blocks until node s is matched by a fulfill operation.-- 旋转/阻塞，直到节点s通过执行操作匹配。
+         * Spins/blocks until node s is matched by a fulfill operation.
+         * -- 旋转/阻塞，直到节点s通过执行操作匹配。
          *
          * @param s the waiting node 当前请求Node,执行等待的节点
          * @param timed true if timed wait 当前请求是否支持 超时限制
          * @param nanos timeout value 如果请求支持超时限制，nanos 表示超时等待时长。
-         * @return matched node, or s if cancelled
+         * @return matched node, or s if cancelled,返回与之匹配的节点，如果取消则返回节点自己
          */
         SNode awaitFulfill(SNode s, boolean timed, long nanos) {
             /*
@@ -819,13 +820,19 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
             //获取当前请求线程..
             Thread w = Thread.currentThread();
 
-            //spins 表示当前请求线程 在 下面的 for(;;) 自旋检查中，自旋次数。 如果达到spins自旋次数时，当前线程对应的Node 仍然未被匹配成功，
-            //那么再选择 挂起 当前请求线程。
+            /**
+             * spins 表示当前请求线程 在 下面的 for(;;) 自旋检查中，自旋次数。
+             * 如果达到spins自旋次数时，当前线程对应的Node 仍然未被匹配成功，
+             * 那么再选择 挂起 当前请求线程。
+             *
+             * 前提是：我们任务自旋要比挂起性能更高，所以选择先自旋再挂起
+             */
             int spins = (
 
                     shouldSpin(s) ?//是否可以自旋？
 
-                            //timed == true 指定了超时限制的，这个时候采用 maxTimedSpins == 32 ,否则采用 32 * 16
+                            //timed == true 指定了超时限制的，这个时候采用 maxTimedSpins == 32 ,
+                            // 否则采用 32 * 16 = 512
                             (timed ? maxTimedSpins : maxUntimedSpins) :
 
                             0 //如果不能自旋，则自旋次数=0
@@ -905,17 +912,35 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
          * -- 如果节点s在头或有一个活跃的履行者，则返回true。
          *
          * 判断参数节点s是否可以自旋
+         *
+         * @param s 当前等待被匹配的节点
          */
         boolean shouldSpin(SNode s) {
             //获取栈顶
             SNode h = head;
 
-            return (h == s //条件一 h == s ：条件成立 说明当前s 就是栈顶，允许自旋检查...
+            return (h == s //条件一 h == s ：条件成立 说明当前s 就是栈顶，当前请求刚入栈，允许自旋检查...
 
-                    //条件二 h == null : 什么时候成立？ 当前s节点 自旋检查期间，又来了一个 与当前s 节点匹配的请求，双双出栈了...条件会成立。
+                    /**
+                     * 条件二 h == null : 什么时候成立？
+                     * 当前s节点 自旋检查期间，又来了一个 与当前s 节点匹配的请求，双双出栈了...条件会成立。
+                     *
+                     * ｜ F  ｜ 新来了REQUEST类型的请求，入栈之后类型为FULFILLING，正好与之前栈顶s匹配
+                     * ｜————｜
+                     * ｜ D  ｜ s为DATA类型的节点，正在自旋
+                     * ｜————｜
+                     *
+                     * 此时这2个元素是一起出栈的
+                     * TODO 为什么还要自旋呢？
+                     */
                     || h == null
 
-                    //条件三 isFulfilling(h.mode) ： 前提 当前 s 不是 栈顶元素。并且当前栈顶正在匹配中，这种状态 栈顶下面的元素，都允许自旋检查。
+                    /**
+                     * 条件三 isFulfilling(h.mode) ：
+                     * 前提： 当前 s 不是 栈顶元素并且栈顶引用不为null
+                     *
+                     * 如果当前栈顶正在匹配中，这种状态 栈顶下面的元素，都允许自旋检查。
+                     */
                     || isFulfilling(h.mode));
         }
 
