@@ -1675,46 +1675,87 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                      * 1.队列不为空
                      * 2.并且队尾模式跟当前前驱模式互补
                      */
-                    //h.next节点 其实是真正的队头，请求节点 与队尾模式不同，需要与队头 发生匹配。因为TransferQueue是一个 公平模式
-                    QNode m = h.next;               // node to fulfill
 
-                    //条件一：t != tail 什么时候成立呢？ 肯定是并发导致的，其它线程已经修改过tail了，有其它线程入队过了..当前线程看到的是过期数据，需要重新循环
-                    //条件二：m == null 什么时候成立呢？ 肯定是其它请求先当前请求一步，匹配走了head.next节点。
-                    //条件三：条件成立，说明已经有其它请求匹配走head.next了。。。当前线程看到的是过期数据。。。重新循环...
-                    if (t != tail || m == null || h != head) {
+                    //h.next节点 其实是真正的队头，因为有个dummy节点
+                    //请求节点 与队尾模式不同，需要与队头 发生匹配。
+                    //因为TransferQueue是一个 公平模式
+
+                    /**
+                     * head(dummy)(h) -> m -> node -> node -> tail(t)
+                     */
+                    QNode m = h.next;               // node to fulfill 本次需要匹配的节点
+
+                    //条件一：t != tail 什么时候成立呢？
+                    //肯定是并发导致的，其它线程已经修改过tail了，有其它线程入队过了..
+                    //当前线程看到的是过期数据，需要重新循环
+                    if (t != tail
+                            //条件二：m == null 什么时候成立呢？ 肯定是其它请求先当前请求一步，匹配走了head.next节点。
+                            || m == null
+                            //条件三：条件成立，说明已经有其它请求匹配走head.next了。。。
+                            //当前线程看到的是过期数据。。。重新循环...
+                            || h != head) {
                         continue;                   // inconsistent read
                     }
 
-                    //执行到这里，说明t m h 不是过期数据,是准确数据。目前来看是准确的！
-                    //获取匹配节点的数据域 保存到x
+                    /**
+                     * 执行到这里，说明t m h 不是过期数据,是准确数据。目前来看是准确的！
+                     * 获取匹配节点的数据域 保存到x
+                     *
+                     * head(dummy)(h) -> m(x = m.item) -> node -> node -> tail(t) ---> s节点（当前节点与m节点可以匹配）
+                     */
                     Object x = m.item;
 
-                    //条件一：isData == (x != null)
-                    //isData 表示当前请求是什么类型  isData == true：当前请求是DATA类型  isData == false：当前请求是REQUEST类型。
-                    //1.假设isData == true   DATA类型
-                    //m其实表示的是 REQUEST 类型的NODE，它的数据域是 null  => x==null
-                    //true == (null != null)  => true == false => false
+                    /**
+                     * head(dummy)(h) -> m(x = m.item) -> node -> node -> tail(t) ---> s节点（当前节点与m节点可以匹配）
+                     *
+                     * 条件一：isData == (x != null)
+                     * isData 表示当前请求是什么类型
+                     * isData == true：当前请求是DATA类型  isData == false：当前请求是REQUEST类型。
+                     *
+                     * 1.假设isData == true   当前请求为DATA类型
+                     * m其实表示的是 REQUEST 类型的NODE，它的数据域是 null  则 x==null
+                     * true == (null != null)  意思就是 true == false 明显为 false
+                     *
+                     * 2.假设isData == false 当前请求是REQUEST类型
+                     * m其实表示的是 DATA 类型的NODE，它的数据域是 提交是的e ，并且e != null。
+                     * false == (obj != null) => false == true => false
+                     *
+                     * 总结：正常情况下，条件一不会成立。
+                     */
+                    if (isData == (x != null)// m already fulfilled
+                            ||
 
-                    //2.假设isData == false REQUEST类型
-                    //m其实表示的是 DATA 类型的NODE，它的数据域是 提交是的e ，并且e != null。
-                    //false == (obj != null) => false == true => false
+                            /**
+                             * 条件二：条件成立，说明m节点已经是 取消状态了...不能完成匹配，
+                             * 当前请求需要continue，再重新选择路径执行了..
+                             *
+                             * head(dummy)(h) -> m(x = m.item) -> node -> node -> tail(t) ---> s节点（当前节点与m节点可以匹配）
+                             *
+                             * 当m取消的时候，x == m 就会成立
+                             */
+                            x == m  // m cancelled
+                            ||
 
-                    //总结：正常情况下，条件一不会成立。
-
-                    //条件二：条件成立，说明m节点已经是 取消状态了...不能完成匹配，当前请求需要continue，再重新选择路径执行了..
-
-                    //条件三：!m.casItem(x, e)，前提条件 m 非取消状态。
-                    //1.假设当前请求为REQUEST类型   e == null
-                    //m 是 DATA类型了...
-                    //相当于将匹配的DATA Node的数据域清空了，相当于REQUEST 拿走了 它的数据。
-
-                    //2.假设当前请求为DATA类型    e != null
-                    //m 是 REQUEST类型了...
-                    //相当于将匹配的REQUEST Node的数据域 填充了，填充了 当前DATA 的 数据。相当于传递给REQUEST请求数据了...
-                    if (isData == (x != null) ||    // m already fulfilled
-                            x == m ||                   // m cancelled
+                            /**
+                             * 前提：
+                             * 1.m还没有被匹配走
+                             * 2.m也没有取消
+                             *
+                             * 那么 m 就可以与当前请求节点匹配啦
+                             *
+                             * 条件三：!m.casItem(x, e)，前提条件 m 非取消状态。
+                             * 1.假设当前请求为REQUEST类型   则 e == null
+                             * 则 m 是 DATA类型了...
+                             * 相当于将匹配的DATA Node的数据域清空了，相当于REQUEST 拿走了 它的数据。
+                             *
+                             * 2.假设当前请求为DATA类型    e != null
+                             * m 是 REQUEST类型了...
+                             * 相当于将匹配的REQUEST Node的数据域 填充了，填充了 当前DATA 的 数据。
+                             * 相当于传递给REQUEST请求数据了...
+                             */
                             !m.casItem(x, e)) {         // lost CAS
-                        advanceHead(h, m);          // dequeue and retry
+
+                        advanceHead(h, m);          // dequeue and retry - 出队并重试
                         continue;
                     }
 
@@ -1724,9 +1765,9 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     //2.唤醒匹配节点的线程..
                     LockSupport.unpark(m.waiter);
 
-                    //x != null 成立，说明当前请求是REQUEST类型，返回匹配到的数据x
-                    //x != null 不成立，说明当前请求是DATA类型，返回DATA请求时的e。
-                    return (x != null) ? (E) x : e;
+                    return (x != null) ?
+                            (E) x ://x != null 成立，说明当前请求是REQUEST类型，返回匹配到的数据x
+                            e;//x != null 不成立，说明当前请求是DATA类型，返回DATA请求时的e。
                 }
             }
         }
