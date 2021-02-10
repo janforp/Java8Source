@@ -282,18 +282,22 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
         /** Node represents an unfulfilled consumer */
         /**
          * 表示Node类型为 请求类型
+         * 二进制： ...... 0000 0000 0000 0000
          */
         static final int REQUEST = 0;
         /** Node represents an unfulfilled producer */
         /**
          * 表示Node类型为 数据类型
+         * 二进制： ...... 0000 0000 0000 0001
          */
         static final int DATA = 1;
         /** Node is fulfilling another unfulfilled DATA or REQUEST */
         /**
          * 表示Node类型为 匹配中类型
-         * 假设栈顶元素为 REQUEST-NODE，当前请求类型为 DATA的话，入栈会修改类型为 FULFILLING 【栈顶 & 栈顶之下的一个node】。
-         * 假设栈顶元素为 DATA-NODE，当前请求类型为 REQUEST的话，入栈会修改类型为 FULFILLING 【栈顶 & 栈顶之下的一个node】。
+         * 假设栈顶元素为 REQUEST 类型的节点，当前请求类型为 DATA类型的话，入栈会修改类型为 FULFILLING 【栈顶 & 栈顶之下的一个node】。
+         * 假设栈顶元素为 DATA 类型的节点，当前请求类型为 REQUEST类型的话，入栈会修改类型为 FULFILLING 【栈顶 & 栈顶之下的一个node】。
+         *
+         * 二进制： ...... 0000 0000 0000 0010
          */
         static final int FULFILLING = 2;
 
@@ -302,11 +306,33 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
          */
         //判断当前模式是否为 匹配中状态。
         static boolean isFulfilling(int m) {
+            /**
+             * XX & 10 == 0
+             * 则XX可能为：
+             * 01
+             *
+             *
+             *
+             *
+             *TODO
+             *
+             */
             return (m & FULFILLING) != 0;
         }
 
         /**
          * Node class for TransferStacks.
+         *
+         * 栈  顶
+         *
+         * ｜    ｜
+         * ｜————｜
+         * ｜    ｜
+         * ｜————｜
+         * ｜    ｜
+         * ｜————｜
+         * ｜    ｜
+         * ｜————｜
          */
         static final class SNode {
 
@@ -319,18 +345,24 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
             /**
              * 假设当前node对应的线程 自旋期间未被匹配成功，那么node对应的线程需要挂起，挂起前 waiter 保存对应的线程引用，
              * 方便 匹配成功后，被唤醒。
+             *
+             * 因为挂起的时候需要使用LockSupport.park跟unpark就需要使用线程，自旋是不需要的
              */
             volatile Thread waiter;     // to control park/unpark
 
             /**
              * 数据;或对于REQUEST为null -- data; or null for REQUESTs
              *
-             * 数据域，data不为空 表示当前Node对应的请求类型为 DATA类型。 反之则表示Node为 REQUEST类型。
+             * 数据域，
+             *
+             * data不为空 表示当前Node对应的请求类型为 DATA类型。
+             *
+             * 反之则表示Node为 REQUEST类型。
              */
             Object item;
 
             /**
-             * 表示当前Node的模式 【DATA/REQUEST/FULFILLING】
+             * 表示当前Node的模式 【DATA/REQUEST/FULFILLING】0/1/2
              */
             int mode;
 
@@ -345,7 +377,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
             /**
              * CAS方式设置Node对象的next字段。
              *
-             * @param cmp 比较对象 TODO ?
+             * @param cmp 比较对象
              * @param val 需要设置的值
              * @return 成功失败
              */
