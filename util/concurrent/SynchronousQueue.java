@@ -705,7 +705,17 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                  * CASE2：当前栈顶模式与请求模式不一致，且栈顶不是FULFILLING
                  */
                 else if (!isFulfilling(h.mode)) { // try to fulfill
-
+                    /**
+                     * 来到这里的前提：
+                     * 1.当前头节点 != null
+                     * 2.并且当前头节点的模式跟当前请求节点的模式不桶
+                     * 3.并且当前头节点的模式不是F类型
+                     *
+                     * 可以推断出以下几种情况
+                     * h        s
+                     * R        D
+                     * D        R
+                     */
                     if (h.isCancelled()) {
                         //条件成立：说明当前栈顶状态为 取消状态，当前线程协助它出栈。
 
@@ -713,20 +723,60 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                         //协助 取消状态节点 出栈。
                         // pop and retry
                         casHead(h, h.next);
-                    } else if (casHead(h, s = snode(s, e, h, FULFILLING | mode))) {
+                    }
+
+                    /**
+                     * 前提：
+                     * 1.当前头节点没有被取消
+                     * 2.
+                     * h        s
+                     * R        D
+                     * D        R
+                     */
+                    else if (casHead(h,
+
+                            /**
+                             * mode ： 当前请求的模式
+                             * FULFILLING | mod 存在的几种情况：
+                             * F | DATA = 0010 | 0001 === > 0011 则mode为3
+                             * F | REQUEST = 0010 | 0000 === > 0010 则mode为2
+                             */
+                            s = snode(s, e, h, FULFILLING | mode))) {
                         //条件成立：说明压栈节点成功，入栈一个 FULFILLING | mode  NODE
 
-                        //当前请求入栈成功
-
-                        //自旋，fulfill 节点 和 fulfill.next 节点进行匹配工作...
+                        /**
+                         * 当前请求入栈成功
+                         *
+                         * ｜F｜R｜   当前头节点就是s，模式为R
+                         * ｜————｜
+                         * ｜D   ｜   与s匹配的节点:s.next,模式为D
+                         * ｜————｜
+                         *
+                         * 开始自旋，fulfill 节点 和 fulfill.next 节点进行匹配工作...
+                         */
                         for (; ; ) { // loop until matched or waiters disappear
                             //m 与当前s 匹配节点。
                             SNode m = s.next;       // m is s's match
 
-                            //m == null 什么时候可能成立呢？
-                            //当s.next节点 超时或者被外部线程中断唤醒后，会执行 clean 操作 将 自己清理出栈，此时
-                            //站在匹配者线程 来看，真有可能拿到一个null。
-                            if (m == null) {        // all waiters are gone
+                            /**
+                             * m == null 什么时候可能成立呢？
+                             * 当s.next节点 超时或者被外部线程中断唤醒后，
+                             * 会执行 clean 操作 将 自己清理出栈，此时
+                             * 站在匹配者线程 来看，真有可能拿到一个null。
+                             *
+                             * ｜F｜R｜   当前头节点就是s，模式为R
+                             * ｜————｜
+                             * ｜D   ｜   与s匹配的节点:s.next,模式为D，此时该节点对应的线程可能在自旋也可能在挂起
+                             * ｜————｜
+                             *
+                             * 如果m==null,则
+                             * ｜F｜R｜   当前头节点就是s，模式为R
+                             * ｜————｜
+                             *
+                             *  因为D节点对应的线程在自旋或者挂起结束之后超时了或者中断了，此时就会把自己给取消
+                             *  然后进行clean操作，所以才会导致这个情况的出现！！！！
+                             */
+                            if (m == null) {        // all waiters are gone - 所有的服务员都走了
                                 //将整个栈清空。
                                 casHead(s, null);   // pop fulfill node
                                 s = null;           // use new node next time
@@ -753,7 +803,6 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                                 s.casNext(m, mn);   // help unlink
                             }
                         }
-
                     }
                 }
 
