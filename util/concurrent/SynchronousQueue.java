@@ -1119,6 +1119,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
         /**
          * Unlinks s from the stack.
+         *
+         * @param s 取消状态的节点
          */
         void clean(SNode s) {
             //清空数据域
@@ -1137,11 +1139,25 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
              * -- 最糟糕的是，我们可能需要遍历整个堆栈以取消s的链接。如果有多个并发调用要清理，则如果另一个线程已将其删除，则可能看不到。
              * 但是当看到任何已知跟随s的节点时，我们可以停止。除非也将其取消，否则我们将使用s.next，在这种情况下，我们将尝试过去一个节点。我们不做进一步检查，因为我们不想为了找到标记而进行双重遍历。
              */
-
             //检查取消节点的截止位置
             SNode past = s.next;
-
             if (past != null && past.isCancelled()) {
+                /**
+                 * ｜ DRF｜
+                 * ｜————｜
+                 * ｜ D/R｜
+                 * ｜————｜
+                 * ｜ D/R｜ s(取消状态)
+                 * ｜————｜
+                 * ｜ D/R｜ past = s.next(取消状态)
+                 * ｜————｜
+                 * ｜ D/R｜ past = s.next(取消状态)
+                 * ｜————｜
+                 * ｜ D/R｜ past(正常状态)
+                 * ｜————｜
+                 *
+                 * 目的是把遇到的取消节点都清除
+                 */
                 past = past.next;
             }
 
@@ -1149,11 +1165,58 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
             //当前循环检查节点
             SNode p;
-            //从栈顶开始向下检查，将栈顶开始向下连续的 取消状态的节点 全部清理出去，直到碰到past为止。
+            /**
+             * ｜ DRF｜ p = head(取消状态)
+             * ｜————｜
+             * ｜ D/R｜ 取消状态
+             * ｜————｜
+             * ｜ D/R｜ s(取消状态)
+             * ｜————｜
+             * ｜ D/R｜ 取消状态节点
+             * ｜————｜
+             * ｜ D/R｜ 取消状态
+             * ｜————｜
+             * ｜ D/R｜ past(正常状态)
+             * ｜————｜
+             * 从栈顶开始向下检查，将栈顶开始向下连续的 取消状态的节点 全部清理出去，直到碰到past为止。
+             * 目的是把遇到的取消节点都清除
+             */
             while ((p = head) != null && p != past && p.isCancelled()) {
+                //如果p节点也是取消状态，并且p节点不是past节点，则设置head头节点为p.next节点
                 casHead(p, p.next);
             }
-
+            /**
+             * 上面的while循环之后
+             * ｜ D/R｜head/past
+             * ｜————｜
+             */
+            /**
+             * 但是如果是下面的结构就会进入while循环:
+             *
+             * ｜ DRF｜ p
+             * ｜————｜
+             * ｜ D/R｜ 正常状态 n = p.next
+             * ｜————｜
+             * ｜ D/R｜ 取消状态
+             * ｜————｜
+             * ｜ D/R｜ 取消状态
+             * ｜————｜
+             * ｜ D/R｜ 取消状态
+             * ｜————｜
+             * ｜ D/R｜ past(正常状态)
+             * ｜————｜
+             *
+             * 经过下面的循环之后结构会成为:
+             *
+             * ｜ DRF｜ p
+             * ｜————｜
+             * ｜ D/R｜ 正常状态 n = p.next
+             * ｜————｜
+             * ｜ D/R｜ past(正常状态)
+             * ｜————｜
+             *
+             * 其实就是跳过了所有非正常状态的节点
+             */
             // Unsplice embedded nodes
             while (p != null && p != past) {
                 //获取p.next
