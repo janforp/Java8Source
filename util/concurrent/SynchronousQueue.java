@@ -1950,8 +1950,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                             (d != t &&                 // d not tail and
                                     (dn = d.next) != null &&  //   has successor
                                     dn != d &&                //   that is on list
-                                    dp.casNext(d, dn)))       // d unspliced
-                    {
+                                    dp.casNext(d, dn))) {// d unspliced
                         casCleanMe(dp, null);
                     }
                     if (dp == pred) {
