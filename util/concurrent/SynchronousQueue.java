@@ -923,6 +923,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
                     /**
                      * 条件二 h == null : 什么时候成立？
+                     * 前提：当前节点s不是头节点
+                     *
                      * 当前s节点 自旋检查期间，又来了一个 与当前s 节点匹配的请求，双双出栈了...条件会成立。
                      *
                      * ｜ F  ｜ 新来了REQUEST类型的请求，入栈之后类型为FULFILLING，正好与之前栈顶s匹配
@@ -932,12 +934,22 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                      *
                      * 此时这2个元素是一起出栈的
                      * TODO 为什么还要自旋呢？
+                     *
+                     * 是不是当前场景是这样的，当前头节点类型为F，与下面的D节点匹配成功之后出栈了，
+                     * 在某一个瞬间h为null,此时s节点肯定是可以自旋等待的
+                     * ｜ F  ｜
+                     * ｜————｜
+                     * ｜ D  ｜
+                     * ｜————｜
+                     * ｜ s  ｜
+                     * ｜————｜
                      */
                     || h == null
 
                     /**
                      * 条件三 isFulfilling(h.mode) ：
-                     * 前提： 当前 s 不是 栈顶元素并且栈顶引用不为null
+                     * 前提：1.当前 s 不是 栈顶元素
+                     *      2.并且栈顶元素h不为null
                      *
                      * 如果当前栈顶正在匹配中，这种状态 栈顶下面的元素，都允许自旋检查。
                      */
