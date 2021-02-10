@@ -1609,43 +1609,61 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                      */
                     Object x = awaitFulfill(s, e, timed, nanos);    // 10. 调用awaitFulfill, 若节点是 head.next, 则进行一些自旋, 若不是的话, 直接 block, 直到有其他线程 与之匹配, 或它自己进行线程的中断
 
-                    if (x == s) {                   // wait was cancelled，11. 若 (x == s)节点s 对应额线程 wait 超时 或线程中断, 不然的话 x == null (s 是 producer) 或 是正真的传递值(s 是 consumer)
+                    if (x == s) {                   // wait was cancelled-- 等待被取消
+                        // 11. 若 (x == s)节点s 对应额线程 wait 超时 或线程中断,
+                        //不然的话 x == null (s 是 producer) 或 是正真的传递值(s 是 consumer)
+                        //x 就是 s.item，如果 s.item == s， 明显是取消了
                         //说明当前Node状态为 取消状态，需要做 出队逻辑。
-
                         //清理出队逻辑，最后讲。
-                        clean(t, s);                // 12. 对节点 s 进行清除, 若 s 不是链表的最后一个节点, 则直接 CAS 进行 节点的删除, 若 s 是链表的最后一个节点, 则 要么清除以前的 cleamMe 节点(cleamMe != null), 然后将 s.prev 设置为 cleanMe 节点, 下次进行删除 或直接将 s.prev 设置为cleanMe
+                        clean(t, s);
+                        // 12. 对节点 s 进行清除, 若 s 不是链表的最后一个节点,
+                        //则直接 CAS 进行 节点的删除, 若 s 是链表的最后一个节点,
+                        //则 要么清除以前的 cleamMe 节点(cleamMe != null),
+                        //然后将 s.prev 设置为 cleanMe 节点, 下次进行删除 或直接将 s.prev 设置为cleanMe
                         return null;
                     }
 
-                    //执行到这里说明 当前Node 匹配成功了...
-                    //1.当前线程在awaitFulfill方法内，已经挂起了...此时运行到这里时是被 匹配节点的线程使用LockSupport.unpark() 唤醒的..
-                    //被唤醒：当前请求对应的节点，肯定已经出队了，因为匹配者线程 是先让当前Node出队的，再唤醒当前Node对应线程的。
+                    //下面就是非取消状态，匹配成功的逻辑
 
-                    //2.当前线程在awaitFulfill方法内，处于自旋状态...此时匹配节点 匹配后，它检查发现了，然后返回到上层transfer方法的。
-                    //自旋状态返回时：当前请求对应的节点，不一定就出队了...
+                    /**
+                     * 执行到这里说明 当前Node 匹配成功了
+                     * 1.当前线程在awaitFulfill方法内，已经挂起了...此时运行到这里时是被
+                     *   匹配节点的线程使用LockSupport.unpark() 唤醒的..
+                     * 被唤醒：当前请求对应的节点，肯定已经出队了，
+                     *  因为匹配者线程 是先让当前Node出队的，再唤醒当前Node对应线程的。
+                     * 2.当前线程在awaitFulfill方法内，处于自旋状态...此时匹配节点 匹配后，
+                     *
+                     * 它检查发现了，然后返回到上层transfer方法的。
+                     * 自旋状态返回时：当前请求对应的节点，不一定就出队了...
+                     */
 
                     //被唤醒时：s.isOffList() 条件会成立。  !s.isOffList() 不会成立。
-                    //条件成立：说明当前Node仍然在队列内，需要做 匹配成功后 出队逻辑。
-                    if (!s.isOffList()) {           // not already unlinked
-                        //其实这里面做的事情，就是防止当前Node是自旋检查状态时发现 被匹配了，然后当前线程 需要将
-                        //当前线程对应的Node做出队逻辑.
+                    if (!s.isOffList()) {// not already unlinked - 尚未取消链接也就是说还在队列中
+                        //条件成立：说明当前Node仍然在队列内，需要做 匹配成功后 出队逻辑。
 
-                        //t 当前s节点的前驱节点，更新dummy节点为 s节点。表示head.next节点已经出队了...
-                        advanceHead(t, s);          // unlink if head
+                        /**
+                         * 其实这里面做的事情，就是防止当前Node是自旋检查状态时发现 被匹配了，然后当前线程 需要将
+                         * 当前线程对应的Node做出队逻辑.
+                         *
+                         * head -> n -> n -> n -> t -> s
+                         * t ：当前s节点的前驱节点，更新dummy节点为 s节点。表示head.next节点已经出队了...
+                         * TODO 没明白？？？？
+                         */
+                        advanceHead(t, s);          // unlink if head - 如果是头则断开
 
                         //x != null 且 item != this  表示当前REQUEST类型的Node已经匹配到一个DATA类型的Node了。
                         //因为s节点已经出队了，所以需要把它的item域 给设置为它自己，表示它是个取消出队状态。
-                        if (x != null)              // and forget fields
-                        {
+                        if (x != null) {
+                            // and forget fields
                             s.item = s;
                         }
                         //因为s已经出队，所以waiter一定要保证是null。
                         s.waiter = null;
                     }
 
-                    //x != null 成立，说明当前请求是REQUEST类型，返回匹配到的数据x
-                    //x != null 不成立，说明当前请求是DATA类型，返回DATA请求时的e。
-                    return (x != null) ? (E) x : e;
+                    return (x != null) ?
+                            (E) x ://x != null 成立，说明当前请求是REQUEST类型，返回匹配到的数据x
+                            e;//x != null 不成立，说明当前请求是DATA类型，返回DATA请求时的e。
                 }
 
                 //CASE2：队尾节点 与 当前请求节点 互补
