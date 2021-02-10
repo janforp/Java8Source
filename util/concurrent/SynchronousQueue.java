@@ -1119,6 +1119,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
         /**
          * Unlinks s from the stack.
+         * 其实先试图移除连续的取消节点，然后再移除非连续的取消节点
          *
          * @param s 取消状态的节点
          */
@@ -1217,7 +1218,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
              *
              * 其实就是跳过了所有非正常状态的节点
              */
-            // Unsplice embedded nodes
+            // Unsplice embedded nodes -- 取消拼接嵌入式节点
             while (p != null && p != past) {
                 //获取p.next
                 SNode n = p.next;
