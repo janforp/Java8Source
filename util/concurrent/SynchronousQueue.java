@@ -1629,15 +1629,19 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                      * 执行到这里说明 当前Node 匹配成功了
                      * 1.当前线程在awaitFulfill方法内，已经挂起了...此时运行到这里时是被
                      *   匹配节点的线程使用LockSupport.unpark() 唤醒的..
+                     *
                      * 被唤醒：当前请求对应的节点，肯定已经出队了，
                      *  因为匹配者线程 是先让当前Node出队的，再唤醒当前Node对应线程的。
-                     * 2.当前线程在awaitFulfill方法内，处于自旋状态...此时匹配节点 匹配后，
                      *
+                     * 2.当前线程在awaitFulfill方法内，处于自旋状态...此时匹配节点 匹配后，
                      * 它检查发现了，然后返回到上层transfer方法的。
+                     *
                      * 自旋状态返回时：当前请求对应的节点，不一定就出队了...
+                     *
+                     * 所以：
+                     * 1.被唤醒时,肯定是出队的，：s.isOffList() 条件会成立。  !s.isOffList() 不会成立。
+                     * 2.如果没有park而是自旋的时候就成功了，则还没有出队
                      */
-
-                    //被唤醒时：s.isOffList() 条件会成立。  !s.isOffList() 不会成立。
                     if (!s.isOffList()) {// not already unlinked - 尚未取消链接也就是说还在队列中
                         //条件成立：说明当前Node仍然在队列内，需要做 匹配成功后 出队逻辑。
 
@@ -1647,7 +1651,6 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                          *
                          * head -> n -> n -> n -> t -> s
                          * t ：当前s节点的前驱节点，更新dummy节点为 s节点。表示head.next节点已经出队了...
-                         * TODO 没明白？？？？
                          */
                         advanceHead(t, s);          // unlink if head - 如果是头则断开
 
