@@ -597,7 +597,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
                     if (timed//条件一：成立，说明当前请求是指定了 超时限制的
 
-                            //条件二：nanos <= 0 , nanos == 0. 表示这个请求 不支持 “阻塞等待”。 queue.offer();
+                            //条件二：nanos <= 0 ,小于零基本不存在，所以如果 nanos == 0. 表示这个请求 不支持 “阻塞等待”。 queue.offer();
                             && nanos <= 0) {      // can't wait
 
                         if (h != null && h.isCancelled()) {
@@ -605,24 +605,47 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                             // pop cancelled node
                             casHead(h, h.next);
                         } else {
-                            //大部分情况从这里返回。
+                            /**
+                             * CASE1的情况大部分情况从这里返回
+                             *
+                             * 因CASE表示栈为空或者当前请求模式跟栈顶模式一致
+                             * 然而当前请求又不支持等待，那么只能返回null拉
+                             */
                             return null;
                         }
 
                     }
 
-                    //什么时候执行else if 呢？
-                    //当前栈顶为空 或者 模式与当前请求一致，且当前请求允许 阻塞等待。
-                    //casHead(h, s = snode(s, e, h, mode))  入栈操作。
-                    else if (casHead(h, s = snode(s, e, h, mode))) {
-                        //执行到这里，说明 当前请求入栈成功。
-                        //入栈成功之后要做什么呢？
-                        //在栈内等待一个好消息，等待被匹配！
+                    /**
+                     * 什么时候执行else if 呢？
+                     * 1.当前栈顶为空 或者 模式与当前请求一致，
+                     * 2.且当前请求允许 阻塞等待。
+                     * TODO:timed=false好像也会执行到这里吧？
+                     * casHead(h, s = snode(s, e, h, mode))  入栈操作。
+                     */
+                    else if (
+                        //CAS替换老的头节点,新头节点s.next=老的头节点，其实就是试图压栈
+                            casHead(h,//老的头节点
 
-                        //awaitFulfill 等待被匹配的逻辑...
-                        //1.正常情况：返回匹配的节点
-                        //2.取消情况：返回当前节点  s节点进去，返回s节点...
-                        SNode m = awaitFulfill(s, timed, nanos);
+                                    //给当前请求创建了一个节点s,并且成为新的头节点
+                                    s = snode(s, e, h, mode))) {
+                        /**
+                         * 执行到这里，说明 当前请求入栈成功。
+                         *
+                         * ｜ s  ｜ 新的头节点
+                         * ｜————｜
+                         * ｜ h  ｜ 老的头节点
+                         * ｜————｜
+                         * 入栈成功之后要做什么呢？：在栈内等待一个好消息，等待被匹配！
+                         *
+                         * awaitFulfill 等待被匹配的逻辑...
+                         * 1.正常情况：返回匹配的节点
+                         * 2.取消情况：返回当前节点  s节点进去，返回s节点...
+                         */
+                        SNode m = awaitFulfill(s,//s为当前请求的节点，已经压栈成功啦，可以等待匹配
+                                timed, nanos);
+
+                        //执行到这里，说明上面的阻塞方法已经完成，继续往下执行了，可能匹配成功，也可能失败
 
                         if (m == s) {
                             // wait was cancelled
