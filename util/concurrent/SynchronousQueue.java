@@ -323,7 +323,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
         /**
          * Node class for TransferStacks.
          *
-         * 栈  顶
+         * 栈    顶
          *
          * ｜    ｜
          * ｜————｜
@@ -383,33 +383,56 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
              */
             boolean casNext(SNode cmp, SNode val) {
                 /**
+                 * CAS:comxchag LL/LS
+                 *
                  * 优化：cmp == next  为什么要判断？
                  * 因为cas指令 在平台执行时，同一时刻只能有一个cas指令被执行。
-                 * 有了java层面的这一次判断，可以提升一部分性能。 cmp == next 不相等，就没必要走 cas指令。
+                 * 有了java层面的这一次判断，可以提升一部分性能。
+                 *
+                 * 如果cmp != next 就没必要走 cas指令。
                  */
                 return cmp == next && UNSAFE.compareAndSwapObject(this, nextOffset, cmp, val);
             }
 
             /**
+             * 栈    顶
+             * ｜ F  ｜
+             * ｜————｜
+             * ｜ D  ｜
+             * ｜————｜
+             * ｜    ｜
+             * ｜————｜
+             * ｜    ｜
+             * ｜————｜
+             *
+             * 其实是类型为D的对象调用该方法
+             *
              * Tries to match node s to this node, if so, waking up thread.
              * Fulfillers call tryMatch to identify their waiters.
              * Waiters block until they have been matched.
+             *
              * -- 尝试将节点s与此节点匹配，如果是，则唤醒线程。 Fulfiller呼叫tryMatch来识别其服务员。服务员封锁直到他们被匹配。
              *
-             * @param s the node to match
+             * 尝试匹配：调用该方法的对象是栈顶节点的下一个节点，与栈顶匹配的节点
+             *
+             * @param s the node to match 被匹配的节点
              * @return ture 匹配成功。 否则匹配失败..
              */
             boolean tryMatch(SNode s) {
                 //条件一：match == null 成立，说明当前Node尚未与任何节点发生过匹配...
                 if (match == null &&
-                        //条件二 成立：使用CAS方式 设置match字段，表示当前Node已经被匹配了
+                        //条件二 在条件一成立的前提下，如果成立：使用CAS方式 设置match字段，表示当前Node已经被匹配了
                         UNSAFE.compareAndSwapObject(this, matchOffset, null, s)) {
+
                     //当前Node如果自旋结束，那么会使用LockSupport.park 方法挂起，挂起之前会将Node对应的Thread 保留到 waiter字段。
+
                     Thread w = waiter;
-                    //条件成立：说明Node对应的Thread已经挂起了...
                     if (w != null) {    // waiters need at most one unpark
+                        //条件成立：说明Node对应的Thread已经挂起了...
+
                         waiter = null;
-                        //使用unpark方式唤醒。
+
+                        //使用unpark方式唤醒。因为匹配到了
                         LockSupport.unpark(w);
                     }
                     return true;
