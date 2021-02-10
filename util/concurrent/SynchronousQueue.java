@@ -1385,6 +1385,11 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
          * 大家知道 删除一个节点 直接 A.CASNext(B, B.next) 就可以,但是当  节点 B 是整个队列中的末尾元素时,
          * 一个线程删除节点B, 一个线程在节点B之后插入节点 这样操作容易致使插入的节点丢失, 这个cleanMe很像
          * ConcurrentSkipListMap 中的 删除添加的 marker 节点, 他们都是起着相同的作用
+         *
+         * 表示被清理节点的前驱节点
+         *
+         * ｜head｜   ｜    ｜cleanMe｜tail(要被清理了)｜
+         * TODO 为什么这样设计？
          */
         transient volatile QNode cleanMe;
 
@@ -1405,8 +1410,11 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
          */
         void advanceHead(QNode h, QNode nh) {
             if (h == head && UNSAFE.compareAndSwapObject(this, headOffset, h, nh)) {
-                //this.next = this 就表示出队了
-                //推进 head 节点,将 老节点的 oldNode.next = this, help gc
+                /**
+                 * this.next = this 就表示出队了
+                 * 推进 head 节点,将 老节点的 oldNode.next = this, help gc
+                 * @see QNode#isOffList()
+                 */
                 h.next = h; // forget old next
             }
         }
@@ -1486,7 +1494,8 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
             /**
              * 1.判断 e != null 用于区分 producer 与 consumer
-             * isData == true 表示 当前请求是一个写数据操作（DATA）   否则isData == false 表示当前请求是一个 REQUEST操作。
+             * isData == true 表示 当前请求是一个写数据操作（DATA）
+             * 否则isData == false 表示当前请求是一个 REQUEST操作。
              */
             boolean isData = (e != null);
 
@@ -1498,75 +1507,106 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     continue;                       // saw uninitialized value,spin
                 }
 
-                //条件一：成立，说明head和tail同时指向dummy节点，当前队列实际情况 就是 空队列。此时当前请求需要做入队操作，因为没有任何节点 可以去匹配。
-                //条件二：队列不是空，队尾节点与当前请求类型是一致的情况。说明也是无法完成匹配操作的情况，此时当前节点只能入队...
-                if (h == t || t.isData == isData) {         //3. 队列为空, 或队列尾节点和自己相同 (注意这里是和尾节点比价, 下面进行匹配时是和 head.next 进行比较)
+                //条件一：成立，说明head和tail同时指向dummy节点，
+                //当前队列实际情况 就是 空队列。
+                //此时当前请求需要做入队操作，因为没有任何节点 可以去匹配。
+                if (h == t
+                        //条件二：队列不是空，队尾节点与当前请求类型是一致的情况。
+                        //说明也是无法完成匹配操作的情况，此时当前节点只能入队...
+                        || t.isData == isData) {         //3. 队列为空, 或队列尾节点和自己相同 (注意这里是和尾节点比较, 下面进行匹配时是和 head.next 进行比较)
                     QNode tn = t.next;
-                    /**
-                     * 获取当前队尾t 的next节点 tn - t.next
-                     * 如果当前线程执行到这里的时候，在此之前并没有其他线程修改t的next引用，则tail不会发生变化
-                     * 但是此方法是支持多线程访问的，所以要考虑tail已经发生了改变的情况
-                     *
-                     * 因为多线程环境，当前线程在入队之前，其它线程有可能已经入队过了..改变了 tail 引用。
-                     */
+
                     if (t != tail) {                        // 4. tail 改变了, 重新再来
+                        /**
+                         * head -> 1 -> 2 -> tail 进来的时候是这样
+                         * 但是执行到这里的时候已经是：
+                         * head -> 1 -> 2 -> 3(oldTail) -> newTail
+                         *
+                         * 获取当前队尾t 的next节点 tn - t.next
+                         * 如果当前线程执行到这里的时候，在此之前并没有其他线程修改t的next引用，则tail不会发生变化
+                         * 但是此方法是支持多线程访问的，所以要考虑tail已经发生了改变的情况
+                         *
+                         * 因为多线程环境，当前线程在入队之前，其它线程有可能已经入队过了..改变了 tail 引用。
+                         */
                         // inconsistent read：读不一致
                         //线程回到自旋...再选择路径执行。
                         continue;
                     }
 
-                    /**
-                     * 获取当前队尾t 的next节点 tn - t.next
-                     * 如果当前线程执行到这里的时候，在此之前并没有其他线程修改t的next引用，则tail不会发生变化
-                     * 但是此方法是支持多线程访问的，所以要考虑tail已经发生了改变的情况
-                     *
-                     * 因为多线程环境，当前线程在入队之前，其它线程有可能已经入队过了，已经设置了t.next的值，但是还没来得及设置 tail = newNode
-                     *
-                     * 说明已经有线程 入队了，且只完成了 入队的 第一步：设置t.next = newNode， 第二步可能尚未完成..
-                     */
                     if (tn != null) {                       // 5. 其他线程添加了 tail.next, 所以帮助推进 tail，lagging tail(尾巴落后了，tn才是正在的tail)
-                        //条件成立：说明已经有线程 入队了，且只完成了 入队的 第一步：设置t.next = newNode， 第二步可能尚未完成..
-
                         /**
+                         * 条件成立：说明已经有线程 入队了，且只完成了 入队的 第一步：设置t.next = newNode，
+                         * 第二步可能尚未完成..
+                         *
+                         * 主要还是因为重新设置tail是分两部操作完成，并且是非原子性的
+                         *
+                         * 获取当前队尾t 的next节点 tn - t.next
+                         * 如果当前线程执行到这里的时候，在此之前并没有其他线程修改t的next引用，则tail不会发生变化
+                         * 但是此方法是支持多线程访问的，所以要考虑tail已经发生了改变的情况
+                         *
+                         * 因为多线程环境，当前线程在入队之前，其它线程有可能已经入队过了，已经设置了t.next的值，但是还没来得及设置 tail = newNode
+                         *
+                         * 说明已经有线程 入队了，且只完成了 入队的 第一步：设置t.next = newNode， 第二步可能尚未完成..
+                         *
                          * 协助更新tail 指向新的　尾结点。
-                         * 只是协助，不保证成功，原因还是因为存在并发
+                         * 只是协助，不保证成功，原因还是存在并发
                          */
                         advanceTail(t, tn);
                         //线程回到自旋...再选择路径执行。
                         continue;
                     }
 
-                    if (timed && nanos <= 0) {               // 6. 调用的方法的 wait 类型的, 并且 超时了, 直接返回 null, 直接见 SynchronousQueue.poll() 方法,说明此 poll 的调用只有当前队列中正好有一个与之匹配的线程在等待被【匹配才有返回值
-                        //条件成立：说明当前调用transfer方法的 上层方法 可能是 offer() 无参的这种方法进来的，这种方法不支持 阻塞等待...
+                    //上面是一些特殊情况的处理(主要还是并发导致的问题)，下面进入主要逻辑，要做入队操作
 
-                        // can't wait
-                        //检查未匹配到,直接返回null。
+                    if (timed && nanos <= 0) {
+                        /**
+                         * 条件成立：说明当前调用transfer方法的 上层方法
+                         * 可能是 offer() 无参的这种方法进来的，这种方法不支持 阻塞等待...
+                         * @see SynchronousQueue#offer(java.lang.Object)
+                         * @see SynchronousQueue#poll()
+                         *
+                         *  6. 调用的方法的 wait 类型的, 并且 超时了, 直接返回 null,
+                         *  直接见 SynchronousQueue.poll() 方法,
+                         *  说明此 poll 的调用只有当前队列中正好有一个与之匹配的线程在等待被【匹配才有返回值
+                         *  can't wait
+                         * 检查未匹配到,直接返回null。
+                         */
                         return null;
                     }
 
-                    //条件成立：说明当前请求尚未 创建对应的node
                     if (s == null) {
+                        //条件成立：说明当前请求尚未 创建对应的node
                         //创建node过程...
-                        s = new QNode(e, isData);           // 7. 构建节点 QNode
+                        // 7. 构建节点 QNode
+                        s = new QNode(e, isData);
                     }
 
-                    //条件 不成立：!t.casNext(null, s)  说明当前t仍然是tail，当前线程对应的Node入队的第一步 完成！
-                    if (!t.casNext(null, s)) {        // 8. 将 新建的节点加入到 队列中
+                    /**
+                     * 8. 将 新建的节点加入到 队列中
+                     * cas成功，则说明说明当前t仍然是tail，当前线程对应的Node入队的第一步 完成！
+                     * cas失败，说明存在并发，tail已经变了
+                     *
+                     * 更新tail的第一步：tail.next = s
+                     */
+                    if (!t.casNext(null, s)) {
                         // failed to link in
                         continue;
                     }
-
-                    //更新队尾 为咱们请求节点。
+                    /**
+                     * 更新tail的第二步：tail = s
+                     * 更新队尾 为咱们请求节点。继续更新tail的第二步
+                     */
                     advanceTail(t, s);              // swing tail and wait
 
-                    //当前节点 等待匹配....
-                    //当前请求为DATA模式时：e 请求带来的数据
-                    //x == this 当前SNode对应的线程 取消状态
-                    //x == null 表示已经有匹配节点了，并且匹配节点拿走了item数据。
-
-                    //当前请求为REQUEST模式时：e == null
-                    //x == this 当前SNode对应的线程 取消状态
-                    //x != null 且 item != this  表示当前REQUEST类型的Node已经匹配到一个DATA类型的Node了。
+                    /**
+                     * 当前节点 等待匹配....
+                     * 当前请求为DATA模式时：e 请求带来的数据
+                     * x == this 当前SNode对应的线程 取消状态
+                     * x == null 表示已经有匹配节点了，并且匹配节点拿走了item数据。
+                     * 当前请求为REQUEST模式时：e == null
+                     * x == this 当前SNode对应的线程 取消状态
+                     * x != null 且 item != this  表示当前REQUEST类型的Node已经匹配到一个DATA类型的Node了。
+                     */
                     Object x = awaitFulfill(s, e, timed, nanos);    // 10. 调用awaitFulfill, 若节点是 head.next, 则进行一些自旋, 若不是的话, 直接 block, 直到有其他线程 与之匹配, 或它自己进行线程的中断
 
                     if (x == s) {                   // wait was cancelled，11. 若 (x == s)节点s 对应额线程 wait 超时 或线程中断, 不然的话 x == null (s 是 producer) 或 是正真的传递值(s 是 consumer)
@@ -1608,8 +1648,15 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     return (x != null) ? (E) x : e;
                 }
 
-                //CASE2：队尾节点 与 当前请求节点 互补 （队尾->DATA，请求类型->REQUEST）  (队尾->REQUEST, 请求类型->DATA)
-                else {                            // complementary-mode
+                //CASE2：队尾节点 与 当前请求节点 互补
+                //（队尾->DATA，请求类型->REQUEST）
+                // (队尾->REQUEST, 请求类型->DATA)
+                else {                            // complementary-mode -- 互补模式
+                    /**
+                     * 执行到这里的前提：
+                     * 1.队列不为空
+                     * 2.并且队尾模式跟当前前驱模式互补
+                     */
                     //h.next节点 其实是真正的队头，请求节点 与队尾模式不同，需要与队头 发生匹配。因为TransferQueue是一个 公平模式
                     QNode m = h.next;               // node to fulfill
 
@@ -1682,16 +1729,19 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
             //当前请求节点的线程..
             Thread w = Thread.currentThread();
             //允许自旋检查的次数..
-            int spins = ((head.next == s) ?
-                    (timed ? maxTimedSpins : maxUntimedSpins) : 0);
+            int spins = (
+                    //只有head.next节点允许自旋，其他节点都不能自旋
+                    (head.next == s) ?
+                            (timed ? maxTimedSpins : maxUntimedSpins) :
+                            0);
 
             //自旋：1.检查状态等待匹配  2.挂起线程  3.检查状态 是否被中断 或者 超时..
             for (; ; ) {
-                //条件成立：说明线程等待过程中，收到了中断信号，属于中断唤醒..
                 if (w.isInterrupted()) {
+                    //条件成立：说明线程等待过程中，收到了中断信号，属于中断唤醒..
+
                     //更新线程对应的Node状态为 取消状态..
                     //数据域item 指向当前Node自身，表示取消状态.
-
                     s.tryCancel(e);
                 }
 
