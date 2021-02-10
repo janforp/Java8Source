@@ -1746,12 +1746,14 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                              * 条件三：!m.casItem(x, e)，前提条件 m 非取消状态。
                              * 1.假设当前请求为REQUEST类型   则 e == null
                              * 则 m 是 DATA类型了...
-                             * 相当于将匹配的DATA Node的数据域清空了，相当于REQUEST 拿走了 它的数据。
+                             * 则 m.casItem(x, e) 就相当于将匹配的DATA Node的数据域清空了，相当于 REQUEST 拿走了 DATA 的数据。
                              *
-                             * 2.假设当前请求为DATA类型    e != null
-                             * m 是 REQUEST类型了...
-                             * 相当于将匹配的REQUEST Node的数据域 填充了，填充了 当前DATA 的 数据。
+                             * 2.假设当前请求为 DATA 类型    e != null
+                             * 则 m 是 REQUEST类型了，则 m.item = null 的
+                             * 则 m.casItem(x, e) 相当于将匹配的 REQUEST Node的数据域 填充了 当前 DATA 的 数据。
                              * 相当于传递给REQUEST请求数据了...
+                             *
+                             * 总结：cas成功，就表示数据匹配成功！
                              */
                             !m.casItem(x, e)) {         // lost CAS
 
@@ -1761,7 +1763,7 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
 
                     //执行到这里，说明匹配已经完成了，匹配完成后，需要做什么？
                     //1.将真正的头节点 出队。让这个真正的头结点成为dummy节点
-                    advanceHead(h, m);              // successfully fulfilled
+                    advanceHead(h, m);              // successfully fulfilled 匹配完成之后的逻辑
                     //2.唤醒匹配节点的线程..
                     LockSupport.unpark(m.waiter);
 
