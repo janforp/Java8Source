@@ -1888,6 +1888,10 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
         /**
          * Gets rid of cancelled node s with original predecessor pred.
          * -- 去除具有原始前任pred的已取消节点s。
+         * 其实是分几种情况
+         * 1.清除 head.next，头节点的next
+         * 2.清除中间的节点，既不是head.next，也不是tail
+         * 3.清除尾部节点tail
          */
         void clean(QNode pred, QNode s) {
             s.waiter = null; // forget thread
@@ -1902,6 +1906,10 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
             while (pred.next == s) { // Return early if already unlinked
                 QNode h = head;
                 QNode hn = h.next;   // Absorb cancelled first node as head
+
+                /**
+                 * 1.清除 head.next，头节点的next
+                 */
                 if (hn != null && hn.isCancelled()) {
                     advanceHead(h, hn);
                     continue;
@@ -1918,6 +1926,10 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     advanceTail(t, tn);
                     continue;
                 }
+
+                /**
+                 *  2.清除中间的节点，既不是head.next，也不是tail
+                 */
                 if (s != t) {        // If not tail, try to unsplice
                     QNode sn = s.next;
                     if (sn == s || pred.casNext(s, sn)) {
@@ -1925,6 +1937,9 @@ public class SynchronousQueue<E> extends AbstractQueue<E> implements BlockingQue
                     }
                 }
 
+                /**
+                 * 3.清除尾部节点tail
+                 */
                 QNode dp = cleanMe;
                 if (dp != null) {    // Try unlinking previous cancelled node
                     QNode d = dp.next;
