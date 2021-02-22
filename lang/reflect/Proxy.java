@@ -1,28 +1,3 @@
-/*
- * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
 package java.lang.reflect;
 
 import sun.misc.ProxyGenerator;
@@ -46,6 +21,9 @@ import java.util.function.BiFunction;
  * {@code Proxy} provides static methods for creating dynamic proxy
  * classes and instances, and it is also the superclass of all
  * dynamic proxy classes created by those methods.
+ *
+ * -- {@code Proxy}提供用于创建动态代理类和实例的静态方法，它还是由这些方法创建的所有动态代理类的超类。
+ * 意思就是所有的代理类都继承自该类，所以java动态代理只能代理接口类型
  *
  * <p>To create a proxy for some interface {@code Foo}:
  * <pre>
@@ -226,12 +204,14 @@ import java.util.function.BiFunction;
  * @see InvocationHandler
  * @since 1.3
  */
+@SuppressWarnings("all")
 public class Proxy implements java.io.Serializable {
 
     private static final long serialVersionUID = -2222568056686623797L;
 
     /**
      * parameter types of a proxy class constructor
+     * -- 代理类构造函数的参数类型
      */
     private static final Class<?>[] constructorParams = { InvocationHandler.class };
 
@@ -359,14 +339,11 @@ public class Proxy implements java.io.Serializable {
      * argument or any of its elements are {@code null}
      */
     @CallerSensitive
-    public static Class<?> getProxyClass(ClassLoader loader,
-            Class<?>... interfaces)
-            throws IllegalArgumentException {
+    public static Class<?> getProxyClass(ClassLoader loader, Class<?>... interfaces) throws IllegalArgumentException {
         SecurityManager sm = System.getSecurityManager();
         if (sm != null) {
             checkProxyAccess(Reflection.getCallerClass(), loader, interfaces);
         }
-
         return getProxyClass0(loader, interfaces);
     }
 
