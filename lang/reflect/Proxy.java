@@ -223,6 +223,7 @@ public class Proxy implements java.io.Serializable {
 
     /**
      * the invocation handler for this proxy instance.
+     * -- 此代理实例的调用处理程序。
      *
      * @serial
      */
@@ -756,6 +757,8 @@ public class Proxy implements java.io.Serializable {
 
             //获取代理类的构造方法，选择参数为 InvocationHandler 类型的构造方法
             final Constructor<?> cons = cl.getConstructor(constructorParams);
+
+            //传进来的 InvocationHandler 实例
             final InvocationHandler ih = h;
             if (!Modifier.isPublic(cl.getModifiers())) {
                 AccessController.doPrivileged(new PrivilegedAction<Void>() {
