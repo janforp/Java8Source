@@ -1,38 +1,3 @@
-/*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
- * Written by Doug Lea with assistance from members of JCP JSR-166
- * Expert Group and released to the public domain, as explained at
- * http://creativecommons.org/publicdomain/zero/1.0/
- */
-
 package java.util.concurrent.atomic;
 
 import java.util.concurrent.ThreadLocalRandom;
@@ -43,8 +8,10 @@ import java.util.function.LongBinaryOperator;
  * A package-local class holding common representation and mechanics
  * for classes supporting dynamic striping on 64bit values. The class
  * extends Number so that concrete subclasses must publicly do so.
+ *
+ * Striped:有条纹的
  */
-@SuppressWarnings("serial")
+@SuppressWarnings({ "serial", "all" })
 abstract class Striped64 extends Number {
     /*
      * This class maintains a lazily-initialized table of atomically
@@ -114,19 +81,32 @@ abstract class Striped64 extends Number {
 
     /**
      * Padded variant of AtomicLong supporting only raw accesses plus CAS.
+     * -- AtomicLong的填充变体仅支持原始访问以及CAS。
      *
-     * JVM intrinsics note: It would be possible to use a release-only
-     * form of CAS here, if it were provided.
+     * JVM intrinsics note(JVM内在注释):
+     * It would be possible to use a release-only form of CAS here, if it were provided.
+     * -- 如果提供了CAS，则可以在此处使用仅发行形式的CAS。
      */
     @sun.misc.Contended
     static final class Cell {
 
+        /**
+         * 当前 cell 中存储的 value
+         */
         volatile long value;
 
         Cell(long x) {
+            //初始的value
             value = x;
         }
 
+        /**
+         * 修改当前 cell 中存储的 值
+         *
+         * @param cmp 修改之前的值(用于cas比较)
+         * @param val 比较成功之后就把当前cell中的值设置为 val
+         * @return 修改成功还是失败
+         */
         final boolean cas(long cmp, long val) {
             return UNSAFE.compareAndSwapLong(this, valueOffset, cmp, val);
         }
@@ -134,14 +114,16 @@ abstract class Striped64 extends Number {
         // Unsafe mechanics
         private static final sun.misc.Unsafe UNSAFE;
 
+        /**
+         * @see Cell#value Cell.class 中 {@link Cell#value} 字段的内存偏移
+         */
         private static final long valueOffset;
 
         static {
             try {
                 UNSAFE = sun.misc.Unsafe.getUnsafe();
                 Class<?> ak = Cell.class;
-                valueOffset = UNSAFE.objectFieldOffset
-                        (ak.getDeclaredField("value"));
+                valueOffset = UNSAFE.objectFieldOffset(ak.getDeclaredField("value"));
             } catch (Exception e) {
                 throw new Error(e);
             }
@@ -150,12 +132,16 @@ abstract class Striped64 extends Number {
 
     /**
      * Number of CPUS, to place bound on table size
-     * cpu核shu，cells长度关键影响因素
+     * cpu核shu，cells(Cell 数组)长度关键影响因素
+     *
+     * @see Striped64#cells 影响该数组的长度
      */
     static final int NCPU = Runtime.getRuntime().availableProcessors();
 
     /**
      * Table of cells. When non-null, size is a power of 2.
+     *
+     * 该数组的长度必须是2的次方: 2^n
      */
     transient volatile Cell[] cells;
 
@@ -168,22 +154,30 @@ abstract class Striped64 extends Number {
     transient volatile long base;
 
     /**
+     * Spinlock:自旋锁
+     *
      * Spinlock (locked via CAS) used when resizing and/or creating Cells.
+     * -- Cell数组在调整大小和/或创建时使用的自旋锁（通过CAS锁定）。
+     *
      * 自旋锁
      * 初始化cells或者扩容cells的时候都需要获取锁
      * 0：表示无锁状态
      * 1：表示其他线程已经持有锁类
      */
-    transient volatile int cellsBusy;
+    transient volatile int cellsBusy /** 1/0 两个值 */
+            ;
 
     /**
      * Package-private default constructor
+     * 包私有，因为就 XXXAdder 在继承该类，其他包无法使用
      */
     Striped64() {
     }
 
     /**
      * CASes the base field.
+     *
+     * 通过cas的方式修改{@link Striped64#base} 的值
      */
     final boolean casBase(long cmp, long val) {
         return UNSAFE.compareAndSwapLong(this, BASE, cmp, val);
@@ -195,22 +189,38 @@ abstract class Striped64 extends Number {
      */
     final boolean casCellsBusy() {
         //只有在无锁状态才能拿到锁
-        return UNSAFE.compareAndSwapInt(this, CELLSBUSY, 0, 1);
+        return UNSAFE.compareAndSwapInt(
+                this, // 说明是当前对象
+                CELLSBUSY, //锁字段的内存偏移
+                0, //只有在锁还没有被占用的时候才能有机会获取锁，如果锁没有被占用，则锁字段的值为0
+                1 //如果拿到了锁，则将锁字段的值设置为1
+        );
     }
 
     /**
-     * Returns the probe value for the current thread.
+     * Returns the probe value for the current thread. - 返回当前线程的探测值。
+     *
      * Duplicated from ThreadLocalRandom because of packaging restrictions.
+     * -- 由于包限制，从ThreadLocalRandom复制。
+     *
      * 获取当前线程的hash值
      */
     static final int getProbe() {
-        return UNSAFE.getInt(Thread.currentThread(), PROBE);
+        return UNSAFE.getInt(
+                Thread.currentThread(), // cas操作的对象为当前线程对象
+                PROBE //获取int值对应字段的内存偏移
+        );
     }
 
     /**
-     * Pseudo-randomly advances and records the given probe value for the
-     * given thread.
+     * Pseudo:假的
+     *
+     * Pseudo-randomly advances and records the given probe value for the given thread.
+     * -- 伪随机地前进并记录给定线程的给定探测值。
+     *
      * Duplicated from ThreadLocalRandom because of packaging restrictions.
+     * -- 由于包限制，从ThreadLocalRandom复制。
+     *
      * 重置当前线程的hash值
      */
     static final int advanceProbe(int probe) {
@@ -238,32 +248,60 @@ abstract class Striped64 extends Number {
      * 条件3为true:说明当前线程对应下标的cell为空，需要创建cell（longAccumulate中会创建）[猜测：创建]
      * 条件4为true：表示cas失败，意味着当前线程对应的cell有竞争[猜测：重试或者扩容]
      * TODO 画流程图
+     *
+     * 该方法主要做的事情就是：累加 long 类型的变量
      */
     final void longAccumulate(
             long addValue,//需要增加的数量
             LongBinaryOperator fn,//可以忽略
-            //表示是否发生过竞争，只有cells初始化之后，并且当前线程竞争需改失败，才会是false
+
+            /**
+             * Uncontended : 没有竞争
+             * wasUncontended：是否还没有发生过竞争,如果为
+             *
+             * true则表示还没有发生过竞争,
+             *
+             * false表示已经发生了竞争
+             *
+             * 表示是否发生过竞争，只有cells初始化之后(cells ！= null)，并且当前线程竞争修改失败，才会是false
+             */
             boolean wasUncontended) {
 
         //当前线程的hash值
         int hashCodeOfCurrentThread;
-        //赋值h
-        //如果当前线程的hash值还没有初始化=0
+
         if ((hashCodeOfCurrentThread = getProbe()) == 0) {
-            //说明当前线程还没有分配hash值
+            /**
+             * 赋值 hashCodeOfCurrentThread
+             * 如果当前线程的{@link Thread#threadLocalRandomProbe}变量还是0，表示当前线程的hash值还没有初始化=0
+             * 说明当前线程还没有分配hash值
+             *
+             * @see ThreadLocalRandom#current() 该方法就是给当前线程的 {@link Thread#threadLocalRandomProbe}变量 初始化
+             */
             //给当前线程分配hash值
             ThreadLocalRandom.current(); // force initialization
-            //再次赋值，此时肯定有值，并且不等于0
+            /**
+             * 再次赋值，此时肯定有值，并且不等于0
+             *  @see ThreadLocalRandom#current() 该方法会赋值
+             */
             hashCodeOfCurrentThread = getProbe();
-            //为什么？因为默认情况下，当前线程的hash值=0，当前线程肯定是写入到了cell[0]位置。
-            //不把他当做一次真正的竞争
+
+            /**
+             * wasUncontended = true : 表示还没有发生竞争
+             *
+             * 为什么？因为默认情况下，当前线程的hash值=0，当前线程肯定是写入到了cell[0](因为 hashcode 等于 0的时候，取模的值肯定是0)位置。
+             * 不把他当做一次真正的竞争
+             */
             wasUncontended = true;
         }
 
-        //表示扩容意向，false一定不会扩容，true可能扩容
-        boolean collide = false;                // True if last slot nonempty
+        /**
+         * collide：碰撞
+         * 表示扩容意向，false一定不会扩容，true可能扩容
+         */
+        boolean collide = false;                // True if last slot nonempty--如果最后一个插槽非空则为真
 
-        //自旋
+        /**** 自旋，目的是为了累加 long 值， start  ******/
         for (; ; ) {
             //表示cells引用
             Cell[] cellsReference;
@@ -436,6 +474,7 @@ abstract class Striped64 extends Number {
                 break;                          // Fall back on using base
             }
         }
+        /**** 自旋，目的是为了累加 long 值， end  ******/
     }
 
     /**
@@ -544,23 +583,31 @@ abstract class Striped64 extends Number {
     // Unsafe mechanics
     private static final sun.misc.Unsafe UNSAFE;
 
+    /**
+     * @see Striped64#base 该变量内存偏移
+     */
     private static final long BASE;
 
+    /**
+     * @see Striped64#cellsBusy 该变量内存偏移
+     */
     private static final long CELLSBUSY;
 
+    /**
+     * probe:探测
+     *
+     * @see Thread#threadLocalRandomProbe Thread.class该变量内存偏移
+     */
     private static final long PROBE;
 
     static {
         try {
             UNSAFE = sun.misc.Unsafe.getUnsafe();
             Class<?> sk = Striped64.class;
-            BASE = UNSAFE.objectFieldOffset
-                    (sk.getDeclaredField("base"));
-            CELLSBUSY = UNSAFE.objectFieldOffset
-                    (sk.getDeclaredField("cellsBusy"));
+            BASE = UNSAFE.objectFieldOffset(sk.getDeclaredField("base"));
+            CELLSBUSY = UNSAFE.objectFieldOffset(sk.getDeclaredField("cellsBusy"));
             Class<?> tk = Thread.class;
-            PROBE = UNSAFE.objectFieldOffset
-                    (tk.getDeclaredField("threadLocalRandomProbe"));
+            PROBE = UNSAFE.objectFieldOffset(tk.getDeclaredField("threadLocalRandomProbe"));
         } catch (Exception e) {
             throw new Error(e);
         }
