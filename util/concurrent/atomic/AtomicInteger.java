@@ -1,45 +1,14 @@
-/*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
- * Written by Doug Lea with assistance from members of JCP JSR-166
- * Expert Group and released to the public domain, as explained at
- * http://creativecommons.org/publicdomain/zero/1.0/
- */
-
 package java.util.concurrent.atomic;
-import java.util.function.IntUnaryOperator;
-import java.util.function.IntBinaryOperator;
+
 import sun.misc.Unsafe;
 
+import java.util.function.IntBinaryOperator;
+import java.util.function.IntUnaryOperator;
+
 /**
- * An {@code int} value that may be updated atomically.  See the
+ * An {@code int} value that may be updated atomically. -- 可以原子更新的int类型的值
+ *
+ * See the
  * {@link java.util.concurrent.atomic} package specification for
  * description of the properties of atomic variables. An
  * {@code AtomicInteger} is used in applications such as atomically
@@ -48,21 +17,24 @@ import sun.misc.Unsafe;
  * {@code Number} to allow uniform access by tools and utilities that
  * deal with numerically-based classes.
  *
- * @since 1.5
  * @author Doug Lea
-*/
+ * @since 1.5
+ */
 public class AtomicInteger extends Number implements java.io.Serializable {
+
     private static final long serialVersionUID = 6214790243416807050L;
 
     // setup to use Unsafe.compareAndSwapInt for updates
     private static final Unsafe unsafe = Unsafe.getUnsafe();
+
     private static final long valueOffset;
 
     static {
         try {
-            valueOffset = unsafe.objectFieldOffset
-                (AtomicInteger.class.getDeclaredField("value"));
-        } catch (Exception ex) { throw new Error(ex); }
+            valueOffset = unsafe.objectFieldOffset(AtomicInteger.class.getDeclaredField("value"));
+        } catch (Exception ex) {
+            throw new Error(ex);
+        }
     }
 
     private volatile int value;
@@ -107,6 +79,7 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @since 1.6
      */
     public final void lazySet(int newValue) {
+        // 设置值 并且马上写入主存，该变量必须是volatile类型
         unsafe.putOrderedInt(this, valueOffset, newValue);
     }
 
@@ -258,7 +231,7 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @since 1.8
      */
     public final int getAndAccumulate(int x,
-                                      IntBinaryOperator accumulatorFunction) {
+            IntBinaryOperator accumulatorFunction) {
         int prev, next;
         do {
             prev = get();
@@ -282,7 +255,7 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @since 1.8
      */
     public final int accumulateAndGet(int x,
-                                      IntBinaryOperator accumulatorFunction) {
+            IntBinaryOperator accumulatorFunction) {
         int prev, next;
         do {
             prev = get();
@@ -293,6 +266,7 @@ public class AtomicInteger extends Number implements java.io.Serializable {
 
     /**
      * Returns the String representation of the current value.
+     *
      * @return the String representation of the current value
      */
     public String toString() {
@@ -309,28 +283,30 @@ public class AtomicInteger extends Number implements java.io.Serializable {
     /**
      * Returns the value of this {@code AtomicInteger} as a {@code long}
      * after a widening primitive conversion.
+     *
      * @jls 5.1.2 Widening Primitive Conversions
      */
     public long longValue() {
-        return (long)get();
+        return (long) get();
     }
 
     /**
      * Returns the value of this {@code AtomicInteger} as a {@code float}
      * after a widening primitive conversion.
+     *
      * @jls 5.1.2 Widening Primitive Conversions
      */
     public float floatValue() {
-        return (float)get();
+        return (float) get();
     }
 
     /**
      * Returns the value of this {@code AtomicInteger} as a {@code double}
      * after a widening primitive conversion.
+     *
      * @jls 5.1.2 Widening Primitive Conversions
      */
     public double doubleValue() {
-        return (double)get();
+        return (double) get();
     }
-
 }

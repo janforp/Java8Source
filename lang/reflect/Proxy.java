@@ -688,6 +688,7 @@ public class Proxy implements java.io.Serializable {
      * Returns an instance of a proxy class for the specified interfaces
      * that dispatches method invocations to the specified invocation
      * handler.
+     * -- 返回指定接口的代理类的实例，该实例将方法调用分派到指定的调用处理程序。
      *
      * <p>{@code Proxy.newProxyInstance} throws
      * {@code IllegalArgumentException} for the same reasons that
@@ -730,10 +731,12 @@ public class Proxy implements java.io.Serializable {
      * {@code null}
      */
     @CallerSensitive
-    public static Object newProxyInstance(ClassLoader loader,//类加载器
+    public static Object newProxyInstance(
+            ClassLoader loader,//类加载器
             Class<?>[] interfaces,//代理类需要实现的接口集合
             InvocationHandler h)//代理类虽然全部实现类接口方法，但是接口方法要依靠InvocationHandler去处理
             throws IllegalArgumentException {
+
         Objects.requireNonNull(h);
 
         final SecurityManager sm = System.getSecurityManager();

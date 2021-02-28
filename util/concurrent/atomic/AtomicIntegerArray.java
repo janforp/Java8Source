@@ -1,69 +1,43 @@
-/*
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
- *
- * This code is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Oracle designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Oracle in the LICENSE file that accompanied this code.
- *
- * This code is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * version 2 for more details (a copy is included in the LICENSE file that
- * accompanied this code).
- *
- * You should have received a copy of the GNU General Public License version
- * 2 along with this work; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
- * or visit www.oracle.com if you need additional information or have any
- * questions.
- */
-
-/*
- * This file is available under and governed by the GNU General Public
- * License version 2 only, as published by the Free Software Foundation.
- * However, the following notice accompanied the original version of this
- * file:
- *
- * Written by Doug Lea with assistance from members of JCP JSR-166
- * Expert Group and released to the public domain, as explained at
- * http://creativecommons.org/publicdomain/zero/1.0/
- */
-
 package java.util.concurrent.atomic;
-import java.util.function.IntUnaryOperator;
-import java.util.function.IntBinaryOperator;
+
 import sun.misc.Unsafe;
+
+import java.util.function.IntBinaryOperator;
+import java.util.function.IntUnaryOperator;
 
 /**
  * An {@code int} array in which elements may be updated atomically.
  * See the {@link java.util.concurrent.atomic} package
  * specification for description of the properties of atomic
  * variables.
- * @since 1.5
+ *
  * @author Doug Lea
+ * @since 1.5
  */
 public class AtomicIntegerArray implements java.io.Serializable {
+
     private static final long serialVersionUID = 2862133569453604235L;
 
     private static final Unsafe unsafe = Unsafe.getUnsafe();
+
     private static final int base = unsafe.arrayBaseOffset(int[].class);
+
     private static final int shift;
+
     private final int[] array;
 
     static {
         int scale = unsafe.arrayIndexScale(int[].class);
-        if ((scale & (scale - 1)) != 0)
+        if ((scale & (scale - 1)) != 0) {
             throw new Error("data type scale not a power of two");
+        }
         shift = 31 - Integer.numberOfLeadingZeros(scale);
     }
 
     private long checkedByteOffset(int i) {
-        if (i < 0 || i >= array.length)
+        if (i < 0 || i >= array.length) {
             throw new IndexOutOfBoundsException("index " + i);
+        }
 
         return byteOffset(i);
     }
@@ -247,7 +221,6 @@ public class AtomicIntegerArray implements java.io.Serializable {
         return getAndAdd(i, delta) + delta;
     }
 
-
     /**
      * Atomically updates the element at index {@code i} with the results
      * of applying the given function, returning the previous value. The
@@ -306,7 +279,7 @@ public class AtomicIntegerArray implements java.io.Serializable {
      * @since 1.8
      */
     public final int getAndAccumulate(int i, int x,
-                                      IntBinaryOperator accumulatorFunction) {
+            IntBinaryOperator accumulatorFunction) {
         long offset = checkedByteOffset(i);
         int prev, next;
         do {
@@ -332,7 +305,7 @@ public class AtomicIntegerArray implements java.io.Serializable {
      * @since 1.8
      */
     public final int accumulateAndGet(int i, int x,
-                                      IntBinaryOperator accumulatorFunction) {
+            IntBinaryOperator accumulatorFunction) {
         long offset = checkedByteOffset(i);
         int prev, next;
         do {
@@ -344,21 +317,23 @@ public class AtomicIntegerArray implements java.io.Serializable {
 
     /**
      * Returns the String representation of the current values of array.
+     *
      * @return the String representation of the current values of array
      */
     public String toString() {
         int iMax = array.length - 1;
-        if (iMax == -1)
+        if (iMax == -1) {
             return "[]";
+        }
 
         StringBuilder b = new StringBuilder();
         b.append('[');
         for (int i = 0; ; i++) {
             b.append(getRaw(byteOffset(i)));
-            if (i == iMax)
+            if (i == iMax) {
                 return b.append(']').toString();
+            }
             b.append(',').append(' ');
         }
     }
-
 }
