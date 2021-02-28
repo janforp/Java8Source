@@ -303,7 +303,10 @@ abstract class Striped64 extends Number {
 
         /**** 自旋，目的是为了累加 long 值， start  ******/
         for (; ; ) {
-            //表示cells引用
+            /**
+             * 表示cells引用
+             * @see Striped64#cells 当前对象的 cell 数组
+             */
             Cell[] cellsReference;
             //表示当前线程命中的cell
             Cell hitCell;
@@ -312,25 +315,37 @@ abstract class Striped64 extends Number {
             //表示期望值
             long v;
 
-            //as,n赋值
-            //CASE1:表示cells已经初始化了，当前线程应该将数据写入到对应的cell中
+            /**
+             * cellsReference,lenOfCells 赋值
+             * CASE1:表示cells已经初始化了，当前线程应该将数据写入到对应的cell中
+             */
             if ((cellsReference = cells) != null && (lenOfCells = cellsReference.length) > 0) {
                 //条件3为true:说明当前线程对应下标的cell为空，需要创建cell（longAccumulate中会创建）[猜测：创建]
                 //条件4为true：表示cas失败，意味着当前线程对应的cell有竞争[猜测：重试或者扩容]
 
                 //CASE1.1:True:表示当前线程对应的下标位置的cell为null，需要创建 new Cell
                 if ((hitCell = cellsReference[(lenOfCells - 1) & hashCodeOfCurrentThread]) == null) {
+                    /**
+                     * CASE1.1:True:表示当前线程对应的下标位置的cell为null，需要创建 new Cell
+                     * htiCell为当前线程在 cell 数组中的 Cell,如果还没有初始化，则进入当前分支
+                     */
 
                     //true：表示当前锁未被占用，false表示锁被占用
                     if (cellsBusy == 0) {       // Try to attach new Cell
 
                         //拿当前的x创建cell
-                        Cell newCell = new Cell(addValue);   // Optimistically create
+                        Cell newCell = new Cell(addValue);   // Optimistically create：乐观地创造
 
-                        if (cellsBusy == 0//true：表示当前锁未被占用，false表示锁被占用
+                        if (cellsBusy == 0//cellsBusy == 0：表示当前锁未被占用，cellsBusy == 1 表示锁被占用
                                 &&
-                                //拿锁操作，true:表示当前线程获取锁成功，false表示当前线程获取锁失败
-                                casCellsBusy()) {//可能第一个条件判断完之后，此处cpu让出去了
+                                /**
+                                 * 拿锁操作，true:表示当前线程获取锁成功，false表示当前线程获取锁失败
+                                 * 既然前面发现当前锁还没有被占用，那么当前线程就试图去占用锁，因为存在并发的可能，所以只能使用cas
+                                 * 如果cas失败，就表示发生了竞争，当前锁抢占锁失败了
+                                 *
+                                 * 注意：可能第一个条件判断完之后，此处cpu让出去了，然后再回来 cas 获取锁，则很有可能失败
+                                 */
+                                casCellsBusy()) {
 
                             //当前线程获取锁成功之后才进来这里
 
@@ -340,16 +355,21 @@ abstract class Striped64 extends Number {
                                 //表示当前cells引用
                                 Cell[] rs;
                                 //m:cells长度
-                                //j:表示当前线程命中的cell的下标
-                                int m, j;
-                                if ((rs = cells) != null//赋值，true：cells不为空，false：为空，此处肯定为true
-                                        &&
-                                        (m = rs.length) > 0///赋值，true：cells不为空，false：为空，此处肯定为true
-                                        &&
-                                        //赋值下标j，取模，重复判断，也就是双重检查
-                                        //目的是位了防止其他线程初始化过该位置，然后当前线程再次初始化该位置，导致丢失数据
-                                        rs[j = (m - 1) & hashCodeOfCurrentThread] == null) {
+                                int m,
+                                        //j:表示当前线程命中的cell的下标
+                                        j;
+                                if (
+                                        (rs = cells) != null//赋值，true：cells不为空，false：为空，此处肯定为true，因为进入的时候已经判断过
+                                                &&
+                                                (m = rs.length) > 0///赋值，true：cells不为空，false：为空，此处肯定为true，因为进入的时候已经判断过
+                                                &&
+                                                //赋值下标j，取模，重复判断，也就是双重检查
+                                                //目的是位了防止其他线程初始化过该位置，然后当前线程再次初始化该位置，导致丢失数据
+                                                rs[j = (m - 1) & hashCodeOfCurrentThread] == null) {
+                                    //经过再次检查发现，当前线程名字的 cells 槽位还没有初始化过Cell对象，那么就舒服了，当前线程初始化
                                     rs[j] = newCell;
+
+                                    //创建了当前线程对应的cell
                                     created = true;
                                 }
                             } finally {
@@ -359,11 +379,19 @@ abstract class Striped64 extends Number {
                             if (created) {
                                 break;
                             }
-                            continue;           // Slot is now non-empty
+                            continue;           // Slot is now non-empty：插槽现在非空
                         }
                     }
 
-                    //如果当前锁被占用，这停止扩容意向
+                    /**
+                     * collide：碰撞
+                     * 表示扩容意向，false一定不会扩容，true可能扩容
+                     *
+                     * 如果当前锁被占用，这停止扩容意向
+                     *
+                     * 执行到此处表示
+                     * cellsBusy=1(锁被占用)，并且持锁的线程不是当前线程
+                     */
                     collide = false;
                 }
 
@@ -377,30 +405,60 @@ abstract class Striped64 extends Number {
                 //CASE1.3:当前线程 rehash 过 hash，然后新命中的cell不为空
                 //true：表示写成功，这退出自旋即可
                 //false：表示rehash之后命中的新的cell也有竞争，导致cas失败,重试了一次，再重试一次
-                else if (hitCell.cas(v = hitCell.value, ((fn == null) ? v + addValue : fn.applyAsLong(v, addValue)))) {
+                else if (hitCell.cas(
+                        v = hitCell.value, //原始值（修改前的值）
+                        ((fn == null) ?
+                                v + addValue // 修改成 原始值 + addValue
+                                : fn.applyAsLong(v, addValue)
+                        ))) {
+                    //表示在当前线程对应的Cell上cas累加成功，退出自旋
                     break;
                 }
 
                 //CASE1.4：
-                //条件一：n >= ncpu，true扩容意向改为false.表示不扩容了，false：说明cells数组还可以扩容
-                //条件二：cells != as true表示其他线程已经扩容过了，当前线程rehash重试即可
-                else if (lenOfCells >= NCPU || cells != cellsReference) {
+                else if (
+                /**
+                 * 条件一：n >= ncpu，true扩容意向改为false.表示不扩容了，false：说明cells数组还可以扩容
+                 *
+                 * 意思就是 当前 cell 数组的长度都已经超过cpu的个数了，就无法再扩容了，否则还是有可能会扩容
+                 */
+                        lenOfCells >= NCPU
+                                ||
+
+                                /**
+                                 * 条件二：cells != as true表示其他线程已经扩容过了，当前线程rehash重试即可
+                                 * rehash：其实就是在新数组(一般是一个旧数组的2倍长度的数组)上重新取模定位槽位
+                                 *
+                                 * 如果当前对象的cells引用与之前保存的引用不同了，明显就是因为当前线程的cells已经被其他线程扩容了
+                                 */
+                                cells != cellsReference) {
                     //扩容意向改为false.表示不扩容了
                     collide = false;            // At max size or stale
                 }
 
                 //CASE1.5：
                 //true的时候，即collide=false的时候，设置扩容意向为true，但是不一定真的发生扩容
-                //
                 else if (!collide) {
+                    /**
+                     * collide：碰撞
+                     * 表示扩容意向，false一定不会扩容，true可能扩容
+                     */
                     collide = true;
                 }
 
                 //CASE1.6:真正扩容的逻辑
-                else if (cellsBusy == 0//条件一,true表示当前无锁状态，当前线程可以去竞争这把锁
-                        && //非原子性的操作
-                        //条件二，具体竞争锁的逻辑，true表示竞争到了锁，否则没有拿到锁，表示当前有其他线程在做扩容操作
-                        casCellsBusy()) {
+                else if (
+                /**
+                 * 条件一,true表示当前无锁状态，当前线程可以去竞争这把锁
+                 */
+                        cellsBusy == 0
+
+                                && //&& 为 非原子性的操作
+
+                                /**
+                                 * 条件二，具体竞争锁的逻辑，true表示竞争到了锁，否则没有拿到锁，表示当前有其他线程在做扩容操作
+                                 */
+                                casCellsBusy()) {
 
                     //只有当前无锁，并且当前线程获取到了锁，才进入到这里
                     try {
@@ -422,6 +480,13 @@ abstract class Striped64 extends Number {
                         //释放锁
                         cellsBusy = 0;
                     }
+
+                    /**
+                     * collide：碰撞
+                     * 表示扩容意向，false一定不会扩容，true可能扩容
+                     *
+                     * 扩容完成了，下次自旋肯定就没有扩容意向了
+                     */
                     collide = false;
                     continue;                   // Retry with expanded table
                 }
@@ -430,25 +495,38 @@ abstract class Striped64 extends Number {
                 hashCodeOfCurrentThread = advanceProbe(hashCodeOfCurrentThread);
             }
 
-            //CASE2：前置条件为cells还没有初始化，as为null
-
+            /**
+             * 前面的if为：f ((cellsReference = cells) != null && (lenOfCells = cellsReference.length) > 0)
+             *
+             * CASE2：前置条件为cells还没有初始化，as为null
+             */
             else if (
                 //条件一为true：表示当前未加锁
                     cellsBusy == 0
-                            &&
+
+                            &&//&& 为 非原子性的操作
+
                             //此处为双重检查，因为其他线程可能会在你给as赋值之后需改了cells，条件二为ture：
                             cells == cellsReference
+
                             &&
+
                             //试图获取锁
                             //条件三为true：表示获取锁成功，会把cellsBusy设置为1，false表示其他线程正在持有这把锁
                             casCellsBusy()) {
+
+                //当前线程拿到了锁
+
+                //当前分支主要的目的是初始化 cells 数组
+
                 boolean init = false;
                 try {                           // Initialize table
                     //为什么这里又要判断一次呢？防止其他线程已经初始化了，当前线程再次初始化，导致丢失数据
-                    if (cells == cellsReference) {
+                    if (cells == cellsReference) {//确保当前对象的 cells 数组还没有被其他线程扩容
+
                         //TODO 为什么是2呢？
                         Cell[] rs = new Cell[2];
-                        rs[hashCodeOfCurrentThread & 1] = new Cell(addValue);
+                        rs[hashCodeOfCurrentThread & 1 /** len -1 = 1 */] = new Cell(addValue);
                         cells = rs;
                         init = true;
                     }
@@ -466,12 +544,13 @@ abstract class Striped64 extends Number {
             //1.当前cellsBusy为加锁状态，表示其他线程正在初始化cells，所以当前线程需要把值累加到base
             //2.cells被其他线程初始化后，当前线程需要将数据累加到base
             else if (
-                    casBase(v = base,
+                    casBase(
+                            v = base, //预期值
                             ((fn == null) ?//三元运算出 val
                                     v + addValue
-                                    : fn.applyAsLong(v, addValue)))
-            ) {
-                break;                          // Fall back on using base
+                                    : fn.applyAsLong(v, addValue)
+                            ))) {
+                break;                          // Fall back on using base：扩容进行中，当前线程命中的槽位
             }
         }
         /**** 自旋，目的是为了累加 long 值， end  ******/
