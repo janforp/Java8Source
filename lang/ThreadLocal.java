@@ -1,28 +1,3 @@
-/*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
- * ORACLE PROPRIETARY/CONFIDENTIAL. Use is subject to license terms.
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- *
- */
-
 package java.lang;
 
 import java.lang.ref.WeakReference;
@@ -79,25 +54,26 @@ import java.util.function.Supplier;
  * 线程 ID 是在第一次调用 UniqueThreadIdGenerator.getCurrentThreadId() 时分配的，
  * 在后续调用中不会更改。
  * <pre>
- * import java.util.concurrent.atomic.AtomicInteger;
- *
- * public class ThreadId {
- *     // 原子性整数，包含下一个分配的线程Thread ID
- *     private static final AtomicInteger nextId = new AtomicInteger(0);
- *
- *     // 每一个线程对应的Thread ID
- *     private static final ThreadLocal<Integer> threadId =
- *         new ThreadLocal<Integer>() {
- *             @Override protected Integer initialValue() {
- *                 return nextId.getAndIncrement();
- *         }
- *     };
- *
- *     // 返回当前线程对应的唯一Thread ID, 必要时会进行分配
- *     public static int get() {
- *         return threadId.get();
- *     }
- * }
+ *     * import java.util.concurrent.atomic.AtomicInteger;
+ *  *
+ *  * public class ThreadId {
+ *  *     // 原子性整数，包含下一个分配的线程Thread ID
+ *  *     private static final AtomicInteger nextId = new AtomicInteger(0);
+ *  *
+ *  *     // 每一个线程对应的Thread ID
+ *  *     private static final ThreadLocal<Integer> threadId =
+ *  *         new ThreadLocal<Integer>() {
+ *  *             @Override
+ *  *             protected Integer initialValue() {
+ *  *                 return nextId.getAndIncrement();
+ *  *         }
+ *  *     };
+ *  *
+ *  *     // 返回当前线程对应的唯一Thread ID, 必要时会进行分配
+ *  *     public static int get() {
+ *  *         return threadId.get();
+ *  *     }
+ *  * }
  * </pre>
  * 每个线程都保持对其线程局部变量副本的隐式引用，只要线程是活动的并且 ThreadLocal 实例是可访问的
  * 在线程消失之后，其线程局部实例的所有副本都会被垃圾回收，（除非存在对这些副本的其他引用）。
@@ -105,6 +81,7 @@ import java.util.function.Supplier;
  * @author Josh Bloch and Doug Lea
  * @since 1.2
  */
+@SuppressWarnings("all")
 public class ThreadLocal<T> {
 
     /**
@@ -146,6 +123,7 @@ public class ThreadLocal<T> {
      * 创建新的ThreadLocal对象时  会给当前对象分配一个hash，使用这个方法。
      */
     private static int nextHashCode() {
+        //通过 AtomicInteger cas 实现
         return nextHashCode.getAndAdd(HASH_INCREMENT);
     }
 
@@ -438,6 +416,7 @@ public class ThreadLocal<T> {
             Object value;
 
             Entry(ThreadLocal<?> k, Object v) {
+                //key 传递给父类，弱引用中持有的key就是地区ThreadLocal对象
                 super(k);
                 value = v;
             }
@@ -545,6 +524,9 @@ public class ThreadLocal<T> {
          * Construct a new map including all Inheritable ThreadLocals
          * from given parent map. Called only by createInheritedMap.
          *
+         * -- 构造一个新 ThreadLocalMap，其中包括给定父 ThreadLocalMap 中的
+         * 所有可继承ThreadLocals。仅由createInheritedMap调用。
+         *
          * @param parentMap the map associated with parent thread.
          */
         private ThreadLocalMap(ThreadLocalMap parentMap) {
@@ -555,6 +537,7 @@ public class ThreadLocal<T> {
 
             for (int j = 0; j < len; j++) {
                 Entry e = parentTable[j];
+
                 if (e != null) {
                     @SuppressWarnings("unchecked")
                     ThreadLocal<Object> key = (ThreadLocal<Object>) e.get();
@@ -562,6 +545,7 @@ public class ThreadLocal<T> {
                         Object value = key.childValue(e.value);
                         Entry c = new Entry(key, value);
                         int h = key.threadLocalHashCode & (len - 1);
+                        //在新 ThreadLocalMap 数组中重新分配槽位！！
                         while (table[h] != null) {
                             h = nextIndex(h, len);
                         }

@@ -647,6 +647,8 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
     /**
      * 红黑树中的节点的hash值
+     *
+     * 红黑树根的hash值
      */
     static final int TREEBIN = -2; // hash for roots of trees
 
@@ -672,6 +674,8 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
     /* ---------------- Nodes -------------- */
 
     /**
+     * entry：条目
+     *
      * Key-value entry.  This class is never exported out as a
      * user-mutable Map.Entry (i.e., one supporting setValue; see
      * MapEntry below), but can be used for read-only traversals used
@@ -934,44 +938,52 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
      * Base counter value, used mainly when there is no contention,
      * but also as a fallback during table initialization
      * races. Updated via CAS.
-     * LongAdder 中的 baseCount 未发生竞争时 或者 当前LongAdder处于加锁状态时，增量累到到baseCount中
+     * LongAdder 中的 baseCount 未发生竞争时 或者 当前LongAdder处于加锁状态时，增量累加到baseCount中
      */
     private transient volatile long baseCount;
 
     /**
-     * Table initialization and resizing control.  When negative, the
-     * table is being initialized or resized: -1 for initialization,
-     * else -(1 + the number of active resizing threads).  Otherwise,
-     * when table is null, holds the initial table size to use upon
-     * creation, or 0 for default. After initialization, holds the
-     * next element count value upon which to resize the table.
+     * Table initialization and resizing control.
+     *
+     * When negative, the table is being initialized or resized: -1 for initialization, else -(1 + the number of active resizing threads). -- 如果为负，则表将被初始化或调整大小：-1表示初始化，否则-（1 +活动的调整大小线程数）。
+     *
+     * Otherwise,
+     * when table is null, holds the initial table size to use upon creation, or 0 for default. -- 当table为null时，保留创建时要使用的初始表大小，或者默认为0。
+     *
+     * After initialization,
+     * holds the next element count value upon which to resize the table. -- 初始化后，保留下一个要调整表大小的元素计数值。
+     *
+     *
      * sizeCtl < 0
      * 1. -1 表示当前table正在初始化（有线程在创建table数组），当前线程需要自旋等待..
-     * 2.表示当前table数组正在进行扩容 ,高16位表示：扩容的标识戳   低16位表示：（1 + nThread） 当前参与并发扩容的线程数量
+     * 2.除-1外的其他小于0的值表示当前table数组正在进行扩容 ,高16位表示：扩容的标识戳   低16位表示：（1 + nThread） 当前参与并发扩容的线程数量
      *
      * sizeCtl = 0，表示创建table数组时 使用DEFAULT_CAPACITY为大小
      *
      * sizeCtl > 0
      *
-     * 1. 如果table未初始化，表示初始化大小
+     * 1. 如果table未初始化，表示初始化大小 {@link ConcurrentHashMap#ConcurrentHashMap(int)}
      * 2. 如果table已经初始化，表示下次扩容时的 触发条件（阈值）
      */
     private transient volatile int sizeCtl;
 
     /**
-     * The next table index (plus one) to split while resizing.
+     * The next table index (plus one) to split while resizing. -- 调整大小时要拆分的下一个表索引（加1）
+     *
      * 扩容过程中，记录当前进度。所有线程都需要从transferIndex中分配区间任务，去执行自己的任务。
      */
     private transient volatile int transferIndex;
 
     /**
      * Spinlock (locked via CAS) used when resizing and/or creating CounterCells.
+     *
      * LongAdder中的cellsBuzy 0表示当前LongAdder对象无锁状态，1表示当前LongAdder对象加锁状态
      */
     private transient volatile int cellsBusy;
 
     /**
      * Table of counter cells. When non-null, size is a power of 2.
+     *
      * LongAdder中的cells数组，当baseCount发生竞争后，会创建cells数组，
      * 线程会通过计算hash值 取到 自己的cell ，将增量累加到指定cell中
      * 总数 = sum(cells) + baseCount
@@ -989,6 +1001,8 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
     /* ---------------- Public operations -------------- */
 
     /**
+     * initial：最初的
+     *
      * Creates a new, empty map with the default initial table size (16).
      */
     public ConcurrentHashMap() {
@@ -1011,7 +1025,6 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
 
         //MAXIMUM_CAPACITY >>> 1 意思就是 MAXIMUM_CAPACITY的一半（MAXIMUM_CAPACITY/2）
         int cap = (
-
                 //指定初始容量是否超过最大值的一半？
                 (initialCapacity >= (MAXIMUM_CAPACITY >>> 1)) ?
 
@@ -1024,10 +1037,15 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V> implements Concur
                         //则：tableSizeFor(16 + 8 + 1) = tableSizeFor(25)
                         //因为tableSizeFor(25) = 32
                         //所以就会得到32大小的数组
-                        tableSizeFor(initialCapacity + (initialCapacity >>> 1) + 1));
+                        tableSizeFor(initialCapacity + (initialCapacity >>> 1) + 1)
+        );
         //  sizeCtl > 0
         //  当目前table未初始化时，sizeCtl表示初始化容量
         this.sizeCtl = cap;
+
+        /**
+         * @see ConcurrentHashMap#table 初始化的时候并没有真的实例化该table数组
+         */
     }
 
     /**

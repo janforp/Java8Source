@@ -218,8 +218,10 @@ public class Proxy implements java.io.Serializable {
     /**
      * a cache of proxy classes
      */
-    private static final WeakCache<ClassLoader, Class<?>[], Class<?>> proxyClassCache
-            = new WeakCache<>(new KeyFactory(), new ProxyClassFactory());
+    private static final WeakCache<ClassLoader, Class<?>[], Class<?>> proxyClassCache = new WeakCache<>(
+            new KeyFactory(),
+            new ProxyClassFactory() //生成代理对象的Class
+    );
 
     /**
      * the invocation handler for this proxy instance.
@@ -543,10 +545,12 @@ public class Proxy implements java.io.Serializable {
         private static final String proxyClassNamePrefix = "$Proxy";
 
         // next number to use for generation of unique proxy class names
-        // 生成唯一数字使用，结合上面代理类名称前缀 一起生成代理类名称使用
+        // 生成唯一数字使用，结合上面代理类名称前缀 一起生成代理类名称使用,如：$Proxy0/$Proxy1/$Proxy2
         private static final AtomicLong nextUniqueNumber = new AtomicLong();
 
         /**
+         * 在weakCache中找不到的时候就会使用该方法生成一个代理类的Class对象
+         *
          * @param loader {@link Proxy#newProxyInstance(ClassLoader, Class[], InvocationHandler)} 方法传递
          * @param interfaces 接口数组
          * @return 代理类型
@@ -590,7 +594,7 @@ public class Proxy implements java.io.Serializable {
             }
 
             /**
-             * 生成代理类的包名
+             * 生成代理类的包名,如：com.sun.proxy.$Proxy0
              */
             String proxyPkg = null;     // package to define proxy class in：定义代理类的包
 
@@ -606,9 +610,11 @@ public class Proxy implements java.io.Serializable {
              */
 
             /**
-             * 检查接口数组内的接口，看是否有接口的访问修饰符不是 public的，如果
-             * 有不是 public 的接口，那么咱们生成的  代理类 class 就必须跟该接口在同一个包下，
+             * 检查接口数组内的接口，看是否有接口的访问修饰符不是 public的，
+             * 如果有不是 public 的接口，那么咱们生成的  代理类 class 就必须  ！！！！跟该接口在同一个包下 ！！！！！，
              * 都是如果有多个非 public 接口，并且包不同，则报错！！
+             *
+             * 允许代理非public的接口，但是他们必须在同一个包下面，否则就不行！！！！！
              */
             for (Class<?> intf : interfaces) {
                 int flags = intf.getModifiers();
@@ -621,15 +627,18 @@ public class Proxy implements java.io.Serializable {
 
                     accessFlags = Modifier.FINAL;
 
-                    //当前接口的全限定名称：包名称.类名称
+                    //当前接口的全限定名称：包名称.类名称，如：com.javaxxl.aop0.Animal
                     String name = intf.getName();
                     int n = name.lastIndexOf('.');
 
                     /**
                      * 包名称.类名称得到：包名称
+                     * 如果全限定名称为com.javaxxl.aop0.Animal，则pkg为com.javaxxl.aop0，也就是拿到包名称
                      */
                     String pkg = ((n == -1) ? "" : name.substring(0, n + 1));
                     if (proxyPkg == null) {
+
+                        //第一个非public接口
                         proxyPkg = pkg;
                     }
 
@@ -639,11 +648,12 @@ public class Proxy implements java.io.Serializable {
                         throw new IllegalArgumentException("non-public interfaces from different packages");
                     }
                 }
+                //是 public 则不要检查
             }
 
             if (proxyPkg == null) {
                 /**
-                 * 都是public的接口
+                 * 都是public的接口，则使用默认包名称
                  */
                 // if no non-public proxy interfaces, use com.sun.proxy package
                 proxyPkg = ReflectUtil.PROXY_PACKAGE + ".";
@@ -666,7 +676,6 @@ public class Proxy implements java.io.Serializable {
              */
             byte[] proxyClassFile = ProxyGenerator.generateProxyClass(proxyName, interfaces, accessFlags);
             try {
-
                 /**
                  * 使用加载器加载二进制字节码到jvm，并且返回一个Class类型实例
                  */
@@ -748,7 +757,9 @@ public class Proxy implements java.io.Serializable {
          * Look up or generate the designated proxy class.
          * 生成代理对象 Class 类型
          */
-        Class<?> cl = getProxyClass0(loader, interfaces);
+        Class<?> cl = getProxyClass0(loader,//类加载器
+                interfaces // 代理对象需要实现的接口
+        );
 
         /*
          * Invoke its constructor with the designated invocation handler.
