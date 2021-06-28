@@ -9,14 +9,19 @@ import java.util.function.Supplier;
  * This class provides thread-local variables.  These variables differ from
  * their normal counterparts in that each thread that accesses one (via its
  * {@code get} or {@code set} method) has its own, independently initialized
- * copy of the variable.  {@code ThreadLocal} instances are typically private
+ * copy of the variable.
+ *
+ * {@code ThreadLocal} instances are typically private
  * static fields in classes that wish to associate state with a thread (e.g.,
  * a user ID or Transaction ID).
  *
- * <p>For example, the class below generates unique identifiers local to each
- * thread.
- * A thread's id is assigned the first time it invokes {@code ThreadId.get()}
- * and remains unchanged on subsequent calls.
+ * <p>For example, the class below generates unique identifiers local to each thread.
+ * -- 例如，下面的类生成每个线程本地的唯一标识符
+ *
+ *
+ * A thread's id is assigned the first time it invokes {@code ThreadId.get()} and remains unchanged on subsequent calls.
+ * -- 线程的 id 在它第一次调用 {@code ThreadId.get()} 时被分配，并且在后续调用中保持不变。
+ *
  * <pre>
  * import java.util.concurrent.atomic.AtomicInteger;
  *
@@ -115,12 +120,22 @@ public class ThreadLocal<T> {
      * multiplicative hash values for power-of-two-sized tables.
      * 每创建一个ThreadLocal对象，这个ThreadLocal.nextHashCode 这个值就会增长 0x61c88647 。
      * 这个值 很特殊，它是 斐波那契数  也叫 黄金分割数。hash增量为 这个数字，带来的好处就是 hash分布非常均匀。
+     *
+     * ---- 生成hash code间隙为这个魔数，可以让生成出来的值或者说ThreadLocal的ID较为均匀地分布在2的幂大小的数组中。
      */
     private static final int HASH_INCREMENT = 0x61c88647;
 
     /**
      * Returns the next hash code.
      * 创建新的ThreadLocal对象时  会给当前对象分配一个hash，使用这个方法。
+     *
+     * 可以看出，它是在上一个被构造出的ThreadLocal的ID/threadLocalHashCode的基础上加上一个魔数0x61c88647的。
+     * 这个魔数的选取与斐波那契散列有关，0x61c88647对应的十进制为1640531527。
+     * 斐波那契散列的乘数可以用(long) ((1L << 31) * (Math.sqrt(5) - 1))可以得到2654435769，如果把这个值给转为带符号的int，则会得到-1640531527。换句话说
+     * (1L << 32) - (long) ((1L << 31) * (Math.sqrt(5) - 1))得到的结果就是1640531527也就是0x61c88647
+     * 。
+     * 通过理论与实践，当我们用0x61c88647作为魔数累加为每个ThreadLocal分配各自的ID也就是threadLocalHashCode再与2的幂取模，得到的结果分布很均匀。
+     * ThreadLocalMap使用的是线性探测法，均匀分布的好处在于很快就能探测到下一个临近的可用slot，从而保证效率。
      */
     private static int nextHashCode() {
         //通过 AtomicInteger cas 实现
@@ -182,6 +197,11 @@ public class ThreadLocal<T> {
      * 如果当前线程 没有分配，则给当前线程去分配（使用initialValue方法）
      *
      * @return the current thread's value of this thread-local
+     *
+     * //线程获取threadLocal.get()时 如果是第一次在某个 threadLocal对象上get时，会给当前线程分配一个value
+     * //这个value 和 当前的threadLocal对象 被包装成为一个 entry 其中 key是 threadLocal对象，value是threadLocal对象给当前线程生成的value
+     * //这个entry存放到 当前线程 threadLocals 这个map的哪个桶位？ 与当前 threadLocal对象的threadLocalHashCode 有关系。
+     * // 使用 threadLocalHashCode & (table.length - 1) 的到的位置 就是当前 entry需要存放的位置。
      */
     public T get() {
         //获取当前线程
@@ -198,7 +218,7 @@ public class ThreadLocal<T> {
             if (e != null) {
                 @SuppressWarnings("unchecked")
                 T result = (T) e.value;
-                //返回value..
+                //返回value
                 return result;
             }
         }
@@ -216,13 +236,15 @@ public class ThreadLocal<T> {
      * Variant of set() to establish initialValue. Used instead
      * of set() in case user has overridden the set() method.
      *
+     * -- 用于建立初始值的 set() 变体。如果用户覆盖了 set() 方法，则代替 set() 使用。
+     *
      * setInitialValue方法初始化当前线程与当前threadLocal对象 相关联的value。
      * 且 当前线程如果没有threadLocalMap的话，还会初始化创建map。
      *
      * @return the initial value
      */
     private T setInitialValue() {
-        //调用的当前ThreadLocal对象的initialValue方法，这个方法 大部分情况下咱们都会重写。
+        //调用的当前ThreadLocal对象的initialValue方法，这个方法 大部分情况下咱们都会重写。如果不重写，则value默认为null
         //value 就是当前ThreadLocal对象与当前线程相关联的 线程局部变量。
         T value = initialValue();
         //获取当前线程对象
@@ -230,14 +252,21 @@ public class ThreadLocal<T> {
         //获取当前线程内部的threadLocals    threadLocalMap对象。
         ThreadLocalMap map = getMap(t);
 
-        if (map != null) {//条件成立：说明当前线程内部已经初始化过 threadLocalMap对象了。 （线程的threadLocals 只会初始化一次。）
+        if (map != null) {
+            //条件成立：说明当前线程内部已经初始化过 threadLocalMap对象了。 （线程的threadLocals 只会初始化一次。）
             //保存当前threadLocal与当前线程生成的 线程局部变量。
             //key: 当前threadLocal对象   value：线程与当前threadLocal相关的局部变量
-            map.set(this, value);
+            map.set(
+                    this, // key: 当前threadLocal对象
+                    value // value：线程与当前threadLocal相关的局部变量-- 要保存的对象
+            );
         } else {
             //执行到这里，说明 当前线程内部还未初始化 threadLocalMap ，这里调用createMap 给当前线程创建map
             //参数1：当前线程   参数2：线程与当前threadLocal相关的局部变量
-            createMap(t, value);
+            createMap(
+                    t,      // 参数1：当前线程
+                    value   // 参数2：线程与当前threadLocal相关的局部变量
+            );
         }
 
         //返回线程与当前threadLocal相关的局部变量
@@ -245,10 +274,13 @@ public class ThreadLocal<T> {
     }
 
     /**
-     * Sets the current thread's copy of this thread-local variable
-     * to the specified value.  Most subclasses will have no need to
-     * override this method, relying solely on the {@link #initialValue}
+     * Sets the current thread's copy of this thread-local variable to the specified value.
+     * -- 将此线程局部变量的当前线程副本设置为指定值。
+     *
+     * Most subclasses will have no need to override this method,
+     * relying solely on the {@link #initialValue}
      * method to set the values of thread-locals.
+     * -- 大多数子类将不需要覆盖此方法，仅依靠 {@link #initialValue} 方法来设置线程局部变量的值。
      *
      * 修改当前线程与当前threadLocal对象相关联的 线程局部变量。
      *
@@ -260,16 +292,14 @@ public class ThreadLocal<T> {
         Thread t = Thread.currentThread();
         //获取当前线程的threadLocalMap对象
         ThreadLocalMap map = getMap(t);
-        //条件成立：说明当前线程的threadLocalMap已经初始化过了
-        if (map != null)
-        //调用threadLocalMap.set方法 进行重写 或者 添加。
-        {
-            map.set(this, value);
-        } else
-        //执行到这里，说明当前线程还未创建 threadLocalMap对象。
 
-        //参数1：当前线程   参数2：线程与当前threadLocal相关的局部变量
-        {
+        if (map != null) {
+            //条件成立：说明当前线程的threadLocalMap已经初始化过了
+            //调用threadLocalMap.set方法 进行重写 或者 添加。
+            map.set(this, value);
+        } else {
+            //执行到这里，说明当前线程还未创建 threadLocalMap对象。
+            //参数1：当前线程   参数2：线程与当前threadLocal相关的局部变量
             createMap(t, value);
         }
     }
@@ -288,13 +318,14 @@ public class ThreadLocal<T> {
      * @since 1.5
      */
     public void remove() {
+        Thread currentThread = Thread.currentThread();
         //获取当前线程的 threadLocalMap对象
-        ThreadLocalMap m = getMap(Thread.currentThread());
-        //条件成立：说明当前线程已经初始化过 threadLocalMap对象了
-        if (m != null)
-        //调用threadLocalMap.remove( key = 当前threadLocal)
-        {
-            m.remove(this);
+        ThreadLocalMap map = getMap(currentThread);
+        if (map != null) {
+            //条件成立：说明当前线程已经初始化过 threadLocalMap对象了
+
+            //调用threadLocalMap.remove( key = 当前threadLocal)
+            map.remove(this);
         }
     }
 
@@ -314,6 +345,9 @@ public class ThreadLocal<T> {
      * Create the map associated with a ThreadLocal. Overridden in
      * InheritableThreadLocal.
      *
+     * // 参数1：当前线程
+     * // 参数2：线程与当前threadLocal相关的局部变量
+     *
      * @param t the current thread
      * @param firstValue value for the initial entry of the map
      */
@@ -327,10 +361,13 @@ public class ThreadLocal<T> {
 
     /**
      * Factory method to create map of inherited thread locals.
+     * -- 创建继承线程局部变量映射的工厂方法。
+     *
      * Designed to be called only from Thread constructor.
      *
      * @param parentMap the map associated with parent thread
      * @return a map containing the parent's inheritable bindings
+     * @see InheritableThreadLocal 支持继承的实现
      */
     static ThreadLocalMap createInheritedMap(ThreadLocalMap parentMap) {
         return new ThreadLocalMap(parentMap);
@@ -508,8 +545,7 @@ public class ThreadLocal<T> {
             //table数组的长度一定是 2 的次方数。
             //2的次方数-1 有什么特征呢？  转化为2进制后都是1.    16==> 1 0000 - 1 => 1111
             //1111 与任何数值进行&运算后 得到的数值 一定是 <= 1111
-
-            //i 计算出来的结果 一定是 <= B1111
+            //index 计算出来的结果 一定是 <= B1111
             int index = firstKey.threadLocalHashCode & (INITIAL_CAPACITY - 1);
 
             //创建entry对象 存放到 指定位置的slot中。
