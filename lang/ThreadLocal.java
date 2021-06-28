@@ -897,7 +897,7 @@ public class ThreadLocal<T> {
          *
          * 此方法为清理数据，重新分配槽位
          *
-         * @param staleSlot index of slot known to have null key
+         * @param staleSlot index of slot known to have null key -- 已知具有空键的插槽索引
          * @return the index of the next null slot after staleSlot
          * (all between staleSlot and this slot will have been checked
          * for expunging).
@@ -909,38 +909,44 @@ public class ThreadLocal<T> {
          *
          * 清除工作
          */
-        private int expungeStaleEntry(int staleSlot) {
+        private int expungeStaleEntry(int staleSlot // 已知具有空键的插槽索引 staleSlot
+        ) {
             //获取散列表
             Entry[] tab = table;
             //获取散列表当前长度
             int len = tab.length;
 
             // expunge entry at staleSlot
-            //help gc
+            // help gc，因为key已经被回收了，而value没有，此处直接设置为null
             tab[staleSlot].value = null;
             //因为staleSlot位置的entry 是过期的 这里直接置为Null
             tab[staleSlot] = null;
             //因为上面干掉一个元素，所以 -1.
             size--;
 
-            // Rehash until we encounter null
-            //e：表示当前遍历节点
+            // Rehash until we encounter null -- 重新哈希直到我们遇到 null
+            // e：表示当前遍历节点
             Entry e;
             //i：表示当前遍历的index
             int i;
 
             //for循环从 staleSlot + 1的位置开始搜索过期数据，直到碰到 slot == null 结束。
-            for (i = nextIndex(staleSlot, len);//i = staleSlot 的下一个开始
-                 (e = tab[i]) != null; //结束条件为： tab[i] == null
-                 i = nextIndex(i, len)) { //下一次循环的下标 +  1
+            for (
+                    i = nextIndex(staleSlot, len);//i = staleSlot 的下一个开始
+                    (e = tab[i]) != null; //结束条件为： tab[i] == null
+                    i = nextIndex(i, len) //下一次循环的下标 +  1
+            ) {
 
                 //进入到for循环里面 当前entry一定不为null
 
                 //获取当前遍历节点 entry 的key.
                 ThreadLocal<?> k = e.get();
 
-                //条件成立：说明k表示的threadLocal对象 已经被GC回收了... 当前entry属于脏数据了...
-                if (k == null) {//处理过期槽位
+                if (k == null) {
+                    //条件成立：说明k表示的threadLocal对象 已经被GC回收了... 当前entry属于脏数据了...
+
+                    //处理过期槽位
+
                     //help gc
                     e.value = null;
                     //脏数据对应的slot置为null
@@ -948,16 +954,18 @@ public class ThreadLocal<T> {
                     //因为上面干掉一个元素，所以 -1.
                     size--;
                 } else {
-                    //执行到这里，说明当前遍历的slot中对应的entry 是非过期数据
+                    //执行到这里，说明当前遍历的slot中对应的entry 是非过期数据(因为 k != null)
                     //因为前面有可能清理掉了几个过期数据。
                     //且当前entry 存储时有可能碰到hash冲突了，往后偏移存储了，这个时候 应该去优化位置，让这个位置更靠近 正确位置。
                     //这样的话，查询的时候 效率才会更高！
 
-                    //重新计算当前entry对应的 index
+                    //重新计算当前entry对应的 index 下标
                     //下标h本来应该是该 threadLocal 的存储下标，但是可能发生了冲突，该 threadLocal 存储的位置向后移动了
                     int h = k.threadLocalHashCode & (len - 1);
 
-                    if (h != i) {//条件成立：说明当前entry存储时 就是发生过hash冲突，然后向后偏移过了...
+                    if (h != i) {
+                        //条件成立：说明当前entry存储时 就是发生过hash冲突，然后向后偏移过了.
+
                         //将entry当前位置 设置为null
                         tab[i] = null;
 
@@ -1005,7 +1013,7 @@ public class ThreadLocal<T> {
          * @return true if any stale entries have been removed.
          */
         private boolean cleanSomeSlots(int i, int n) {
-            //表示启发式清理工作 是否清楚过过期数据
+            //表示启发式清理工作 是否清除了过期数据
             boolean removed = false;
             //获取当前map的散列表引用
             Entry[] tab = table;
@@ -1119,8 +1127,13 @@ public class ThreadLocal<T> {
             Entry[] tab = table;
             int len = tab.length;
             for (int j = 0; j < len; j++) {
-                Entry e = tab[j];
-                if (e != null && e.get() == null) {
+                Entry entry = tab[j];
+                if (
+                        entry != null // 说明该槽位存储的词条没有被清除
+                                && entry.get() == null // 说明该词条对应的key已经被回收
+                ) {
+
+                    // 进入这里说明：j位置的词条需要被清除
                     expungeStaleEntry(j);
                 }
             }
