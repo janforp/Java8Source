@@ -137,6 +137,8 @@ public class ThreadLocal<T> {
      * 。
      * 通过理论与实践，当我们用0x61c88647作为魔数累加为每个ThreadLocal分配各自的ID也就是threadLocalHashCode再与2的幂取模，得到的结果分布很均匀。
      * ThreadLocalMap使用的是线性探测法，均匀分布的好处在于很快就能探测到下一个临近的可用slot，从而保证效率。
+     *
+     * @see ThreadLocal#threadLocalHashCode
      */
     private static int nextHashCode() {
         //通过 AtomicInteger cas 实现
@@ -169,6 +171,7 @@ public class ThreadLocal<T> {
     /**
      * Creates a thread local variable. The initial value of the variable is
      * determined by invoking the {@code get} method on the {@code Supplier}.
+     * -- 创建线程局部变量。变量的初始值是通过调用 {@code Supplier} 上的 {@code get} 方法确定的。
      *
      * @param <S> the type of the thread local's value
      * @param supplier the supplier to be used to determine the initial value
@@ -177,6 +180,7 @@ public class ThreadLocal<T> {
      * @since 1.8
      */
     public static <S> ThreadLocal<S> withInitial(Supplier<? extends S> supplier) {
+        // 无非就是使用了jdk 8 的 supplier 而已
         return new SuppliedThreadLocal<>(supplier);
     }
 
@@ -381,6 +385,10 @@ public class ThreadLocal<T> {
      * needing to subclass the map class in InheritableThreadLocal.
      * This technique is preferable to the alternative of embedding
      * instanceof tests in methods.
+     *
+     * -- 方法childValue明显是在子类InheritableThreadLocal中定义的，
+     * 但是在这里内部定义是为了提供createInheritedMap工厂方法，而不需要在InheritableThreadLocal中子类化map类。
+     * 这种技术优于在方法中嵌入 instanceof 测试的替代方法。
      */
     T childValue(T parentValue) {
         throw new UnsupportedOperationException();
@@ -389,6 +397,7 @@ public class ThreadLocal<T> {
     /**
      * An extension of ThreadLocal that obtains its initial value from
      * the specified {@code Supplier}.
+     * -- ThreadLocal 的扩展，它从指定的 {@code Supplier} 获取其初始值。
      */
     static final class SuppliedThreadLocal<T> extends ThreadLocal<T> {
 
@@ -400,6 +409,9 @@ public class ThreadLocal<T> {
 
         @Override
         protected T initialValue() {
+            /**
+             * 从传入的 supplier 中获取初始值
+             */
             return supplier.get();
         }
     }
