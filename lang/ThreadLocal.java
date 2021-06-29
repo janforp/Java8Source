@@ -642,22 +642,18 @@ public class ThreadLocal<T> {
             int index = key.threadLocalHashCode & (table.length - 1);
             //访问散列表中 指定指定位置的 slot
             Entry e = table[index];
-
             if (
                     e != null //条件一：成立 说明slot有值
                             &&
                             e.get() == key //条件二：成立 说明 entry#key 与当前查询的key一致，返回当前entry 给上层就可以了。
             ) {
-
                 // 返回词条
                 return e;
             } else {
                 // 有几种情况会执行到这里？
                 // 1.e == null
                 // 2.e.key != key (表示发生了hash冲突)
-
                 // getEntryAfterMiss 方法 会继续向当前桶位后面继续搜索 e.key == key 的entry.
-
                 // 为什么这样做呢？？
                 // 因为 存储时  发生hash冲突后，并没有在entry层面形成 链表..
                 // 存储时的处理 就是线性的向后找到一个可以使用的slot，并且存放进去。
@@ -773,9 +769,13 @@ public class ThreadLocal<T> {
             Entry[] tab = table;
             int len = tab.length;
             int index = key.threadLocalHashCode & (len - 1);
+            // 从计算得到的下标开始往后遍历数组
             for (Entry entry = tab[index]; entry != null; entry = tab[index = nextIndex(index, len)]) {
                 if (entry.get() == key) {
+                    // 如果被删除的key存在
+                    // 则清除弱引用
                     entry.clear();
+                    // 回收词条
                     expungeStaleEntry(index);
                     return;
                 }
