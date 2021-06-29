@@ -731,27 +731,27 @@ public class ThreadLocal<T> {
             //2.碰到一个过期的 slot ，这个时候 咱们可以强行占用呗。
             //3.查找过程中 碰到 slot == null 了。
             for (Entry entry = tab[indexOfKey];
-                 entry != null;//循环，知道遇到 entry == null 为止
-                 entry = tab[indexOfKey = nextIndex(indexOfKey, len)]) {
-
+                 entry != null;//一直循环到遇到 entry == null 为止
+                 entry = tab[indexOfKey = nextIndex(indexOfKey, len)] // 类似于常规循环的 i++ 推进
+            ) {
                 //获取当前元素key
                 ThreadLocal<?> threadLocalKey = entry.get();
-
-                //条件成立：说明当前set操作是一个替换操作。
                 if (threadLocalKey == key) {
+                    //条件成立：说明当前set操作是一个替换操作。
                     //做替换逻辑。
                     entry.value = value;
                     return;
                 }
-
-                if (threadLocalKey == null) {//条件成立：说明 向下寻找过程中 碰到 entry#key == null 的情况了，说明当前entry 是过期数据。
+                if (threadLocalKey == null) {
+                    //条件成立：说明 向下寻找过程中 碰到 entry#key == null 的情况了
+                    //说明当前entry 是过期数据。也就是这个entry中存储的ThreadLocal已经被GC
                     //碰到一个过期的 slot ，这个时候 咱们可以强行占用呗。
                     //替换过期数据的逻辑。
                     replaceStaleEntry(key, value, indexOfKey);
                     return;
                 }
-            }//跳出循环，则说明在循环过程中，既没有找到替换的key也没有找到过期的槽位，则说明本次是新增
-
+            }
+            //代码执行到此处，跳出循环（条件为 entry == null），则说明在循环过程中，既没有找到替换的key也没有找到过期的槽位，则说明本次是新增
             //执行到这里，说明for循环碰到了 slot == null 的情况。也就是 该slot 中的 entry为null
             //在合适的slot中 创建一个新的entry对象。
             tab[indexOfKey] = new Entry(key, value);
