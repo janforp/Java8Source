@@ -21,6 +21,7 @@ package java.lang;
  * 可继承的ThreadLocal，意思就是子线程可以访问父线程的本地变量!!!!!
  */
 public class InheritableThreadLocal<T> extends ThreadLocal<T> {
+
     /**
      * Computes the child's initial value for this inheritable thread-local
      * variable as a function of the parent's value at the time the child
@@ -36,6 +37,7 @@ public class InheritableThreadLocal<T> extends ThreadLocal<T> {
     protected T childValue(T parentValue) {
         return parentValue;
     }
+
     /**
      * Get the map associated with a ThreadLocal.
      *
@@ -44,6 +46,7 @@ public class InheritableThreadLocal<T> extends ThreadLocal<T> {
     ThreadLocalMap getMap(Thread t) {
         return t.inheritableThreadLocals;
     }
+
     /**
      * Create the map associated with a ThreadLocal.
      *
