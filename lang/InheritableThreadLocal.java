@@ -17,6 +17,8 @@ package java.lang;
  * @author Josh Bloch and Doug Lea
  * @see ThreadLocal
  * @since 1.2
+ *
+ * 可继承的ThreadLocal，意思就是子线程可以访问父线程的本地变量!!!!!
  */
 public class InheritableThreadLocal<T> extends ThreadLocal<T> {
     /**

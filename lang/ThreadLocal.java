@@ -601,10 +601,8 @@ public class ThreadLocal<T> {
             int len = parentTable.length;
             setThreshold(len);
             table = new Entry[len];
-
             for (int j = 0; j < len; j++) {
                 Entry e = parentTable[j];
-
                 if (e != null) {
                     @SuppressWarnings("unchecked")
                     ThreadLocal<Object> key = (ThreadLocal<Object>) e.get();

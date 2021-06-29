@@ -385,6 +385,8 @@ public class Thread implements Runnable {
         this.target = target;
         setPriority(priority);
         if (parent.inheritableThreadLocals != null) {
+            // (2)如果父线程的inheritableThreadLocal不为null
+            //（3）设置子线程中的inheritableThreadLocals为父线程的inheritableThreadLocals
             this.inheritableThreadLocals =
                     ThreadLocal.createInheritedMap(parent.inheritableThreadLocals);
         }
