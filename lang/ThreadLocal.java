@@ -275,6 +275,7 @@ public class ThreadLocal<T> {
      * method to set the values of thread-locals.
      * -- 大多数子类将不需要覆盖此方法，仅依靠 {@link #initialValue} 方法来设置线程局部变量的值。
      * 修改当前线程与当前threadLocal对象相关联的 线程局部变量。
+     *
      * @param value the value to be stored in the current thread's copy of
      * this thread-local.
      */
@@ -1125,4 +1126,11 @@ public class ThreadLocal<T> {
             }
         }
     }
+
+    /**
+     2  * 是继承自WeakReference的一个类，该类中实际存放的key是
+     3  * 指向ThreadLocal的弱引用和与之对应的value值(该value值
+     4  * 就是通过ThreadLocal的set方法传递过来的值)
+     5  * 由于是弱引用，当get方法返回null的时候意味着坑能引用
+     6  */
 }
