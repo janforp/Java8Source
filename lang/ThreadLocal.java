@@ -209,31 +209,22 @@ public class ThreadLocal<T> {
      * // 使用 threadLocalHashCode & (table.length - 1) 的到的位置 就是当前 entry需要存放的位置。
      */
     public T get() {
-        //获取当前线程
-        Thread t = Thread.currentThread();
-        //获取到当前线程Thread对象的 threadLocals map引用
-        //return Thread.currentThread().threadLocals;
-        ThreadLocalMap map = getMap(t);
-        //条件成立：说明当前线程已经拥有自己的 ThreadLocalMap 对象了
+        Thread t = Thread.currentThread();//获取当前线程
+        ThreadLocalMap map = getMap(t);//return Thread.currentThread().threadLocals;
         if (map != null) {
-            //key：当前threadLocal对象
-            //调用map.getEntry() 方法 获取threadLocalMap 中该threadLocal关联的 entry
-            ThreadLocalMap.Entry e = map.getEntry(this);
-            //条件成立：说明当前线程 初始化过 与当前threadLocal对象相关联的 线程局部变量
+            //条件成立：说明当前线程已经拥有自己的 ThreadLocalMap 对象了
+            //调用map.getEntry(threadLocal) 方法 获取threadLocalMap 中该threadLocal关联的 entry
+            ThreadLocalMap.Entry e = map.getEntry(this /**当前threadLocal对象*/);
             if (e != null) {
-                @SuppressWarnings("unchecked")
-                T result = (T) e.value;
-                //返回value
-                return result;
+                //条件成立：说明当前线程 初始化过 与当前threadLocal对象相关联的 线程局部变量
+                return (T) e.value;
             }
         }
-
         //执行到这里有几种情况？
-        //1.当前线程对应的threadLocalMap是空
-        //2.当前线程与当前threadLocal对象没有生成过相关联的 线程局部变量..
-
-        //setInitialValue方法初始化当前线程与当前threadLocal对象 相关联的value。
-        //且 当前线程如果没有threadLocalMap的话，还会初始化创建map。
+        //1.当前线程对应的threadLocalMap是空,还没有实例化过
+        //2.当前线程的threadLocalMap已经实例化，但是当前线程与当前threadLocal对象没有生成过相关联的线程局部变量..
+        //setInitialValue方法初始化当前线程与当前threadLocal对象相关联的value。
+        //且当前线程如果没有threadLocalMap的话，还会初始化创建map。
         return setInitialValue();
     }
 
@@ -256,7 +247,6 @@ public class ThreadLocal<T> {
         Thread t = Thread.currentThread();
         //获取当前线程内部的threadLocals    threadLocalMap对象。
         ThreadLocalMap map = getMap(t);
-
         if (map != null) {
             //条件成立：说明当前线程内部已经初始化过 threadLocalMap对象了。 （线程的threadLocals 只会初始化一次。）
             //保存当前threadLocal与当前线程生成的 线程局部变量。
@@ -273,7 +263,6 @@ public class ThreadLocal<T> {
                     value   // 参数2：线程与当前threadLocal相关的局部变量
             );
         }
-
         //返回线程与当前threadLocal相关的局部变量
         return value;
     }
@@ -281,14 +270,11 @@ public class ThreadLocal<T> {
     /**
      * Sets the current thread's copy of this thread-local variable to the specified value.
      * -- 将此线程局部变量的当前线程副本设置为指定值。
-     *
      * Most subclasses will have no need to override this method,
      * relying solely on the {@link #initialValue}
      * method to set the values of thread-locals.
      * -- 大多数子类将不需要覆盖此方法，仅依靠 {@link #initialValue} 方法来设置线程局部变量的值。
-     *
      * 修改当前线程与当前threadLocal对象相关联的 线程局部变量。
-     *
      * @param value the value to be stored in the current thread's copy of
      * this thread-local.
      */
@@ -297,7 +283,6 @@ public class ThreadLocal<T> {
         Thread t = Thread.currentThread();
         //获取当前线程的threadLocalMap对象
         ThreadLocalMap map = getMap(t);
-
         if (map != null) {
             //条件成立：说明当前线程的threadLocalMap已经初始化过了
             //调用threadLocalMap.set方法 进行重写 或者 添加。
@@ -328,7 +313,6 @@ public class ThreadLocal<T> {
         ThreadLocalMap map = getMap(currentThread);
         if (map != null) {
             //条件成立：说明当前线程已经初始化过 threadLocalMap对象了
-
             //调用threadLocalMap.remove( key = 当前threadLocal)
             map.remove(this);
         }
@@ -360,7 +344,8 @@ public class ThreadLocal<T> {
         //传递t 的意义就是 要访问 当前这个线程 t.threadLocals 字段，给这个字段初始化。
 
         //new ThreadLocalMap(this, firstValue)
-        //创建一个ThreadLocalMap对象 初始 k-v 为 ： this <当前threadLocal对象> ，线程与当前threadLocal相关的局部变量
+        //创建一个ThreadLocalMap对象 初始 k-v 为 ： this <当前threadLocal对象> ，
+        //线程与当前threadLocal相关的局部变量
         t.threadLocals = new ThreadLocalMap(this, firstValue);
     }
 
@@ -909,7 +894,8 @@ public class ThreadLocal<T> {
          *
          * 清除工作
          */
-        private int expungeStaleEntry(int staleSlot // 已知具有空键的插槽索引 staleSlot
+        private int expungeStaleEntry(
+                int staleSlot // 已知具有空键的插槽索引 staleSlot
         ) {
             //获取散列表
             Entry[] tab = table;
