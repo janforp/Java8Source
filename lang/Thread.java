@@ -384,6 +384,8 @@ public class Thread implements Runnable {
                 acc != null ? acc : AccessController.getContext();
         this.target = target;
         setPriority(priority);
+        // 重点地方： 如果当前线程的inheritableThreadLocals 不为空的时候，
+        // 将父线程的inheritableThreadLocals 复制到子线程的LocalMap，从而解决了父线程变量复制到子线程的问题
         if (parent.inheritableThreadLocals != null) {
             // (2)如果父线程的inheritableThreadLocal不为null
             //（3）设置子线程中的inheritableThreadLocals为父线程的inheritableThreadLocals
