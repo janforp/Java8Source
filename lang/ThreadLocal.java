@@ -747,7 +747,8 @@ public class ThreadLocal<T> {
                     return;
                 }
             }
-            //代码执行到此处，跳出循环（条件为 entry == null），则说明在循环过程中，既没有找到替换的key也没有找到过期的槽位，则说明本次是新增
+            //代码执行到此处，跳出循环（条件为 entry == null），则说明在循环过程中，
+            //既没有找到替换的key也没有找到过期的槽位，则说明本次是新增
             //执行到这里，说明for循环碰到了 slot == null 的情况。也就是 该slot 中的 entry为null
             //在合适的slot中 创建一个新的entry对象。
             tab[indexOfKey] = new Entry(key, value);
